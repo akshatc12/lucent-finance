@@ -130,6 +130,18 @@ table.ledger .num{text-align:right;font-variant-numeric:tabular-nums}
 .pill{display:inline-block;font-size:10px;padding:2px 6px;border-radius:5px;background:#2a3550;color:#9bb4ff;margin-left:6px}
 .pill.intl{background:#3a2a50;color:#cba6ff}
 .pill.emi{background:#4a3a1a;color:#f3c969}
+.clickpill{cursor:pointer;transition:filter .12s}
+.clickpill:hover{filter:brightness(1.35)}
+.clickpill::after{content:" ⌕";font-size:8px;opacity:.6}
+
+/* two-level category cell */
+.cat-cell{display:flex;flex-direction:column;gap:5px}
+.sub-input{background:var(--panel-2);border:1px solid transparent;color:var(--text);
+  padding:4px 7px;border-radius:7px;font-size:11px;width:155px;font:inherit}
+.sub-input::placeholder{color:#5b6678}
+.sub-input:hover{border-color:var(--line)}
+.sub-input:focus{border-color:var(--accent);outline:none}
+.bulk-sub{width:175px;padding:8px 10px}
 
 /* Reconciliation */
 .recon-list{display:flex;flex-direction:column;gap:14px}

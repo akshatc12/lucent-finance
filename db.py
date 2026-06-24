@@ -77,6 +77,8 @@ def _migrate(c):
         c.execute("ALTER TABLE transactions ADD COLUMN cycle_month TEXT")
     if "note" not in cols:
         c.execute("ALTER TABLE transactions ADD COLUMN note TEXT")
+    if "subcategory" not in cols:
+        c.execute("ALTER TABLE transactions ADD COLUMN subcategory TEXT")
     # Backfill cycle_month from each transaction's statement date.
     c.execute("""
         UPDATE transactions SET cycle_month = (
@@ -211,13 +213,18 @@ def _build_where(filters):
     args = []
     if filters.get("search"):
         clause += " AND (UPPER(description) LIKE ? OR UPPER(merchant) LIKE ? " \
-                  "OR UPPER(category) LIKE ? OR UPPER(COALESCE(note,'')) LIKE ?)"
+                  "OR UPPER(category) LIKE ? OR UPPER(COALESCE(subcategory,'')) LIKE ? " \
+                  "OR UPPER(COALESCE(note,'')) LIKE ?)"
         s = f"%{filters['search'].upper()}%"
-        args += [s, s, s, s]
-    for col in ("category", "bank", "card_last4", "direction", "section"):
+        args += [s, s, s, s, s]
+    for col in ("category", "subcategory", "bank", "card_last4", "direction", "section"):
         if filters.get(col):
             clause += f" AND {col}=?"
             args.append(filters[col])
+    if str(filters.get("is_emi", "")).lower() in ("1", "true", "yes"):
+        clause += " AND is_emi=1"
+    elif str(filters.get("is_emi", "")).lower() in ("0", "false", "no"):
+        clause += " AND is_emi=0"
     if filters.get("month"):  # YYYY-MM billing cycle
         clause += " AND cycle_month=?"
         args.append(filters["month"])
@@ -253,12 +260,30 @@ def update_category(txn_id, category):
         return c.total_changes
 
 
-def bulk_update_category(filters, category):
-    """Apply a category to every transaction matching the current filter set."""
-    clause, args = _build_where(filters or {})
+def update_subcategory(txn_id, subcategory):
     with _conn() as c:
-        _ensure_category(c, category)
-        c.execute("UPDATE transactions SET category=?" + clause, [category] + args)
+        c.execute("UPDATE transactions SET subcategory=? WHERE id=?",
+                  ((subcategory or "").strip() or None, txn_id))
+        return c.total_changes
+
+
+def bulk_update(filters, category=None, subcategory=None):
+    """Apply a category and/or subcategory to every matching transaction.
+
+    `subcategory=""` clears the subcategory; `None` leaves it untouched.
+    """
+    clause, args = _build_where(filters or {})
+    sets, vals = [], []
+    if category:
+        sets.append("category=?"); vals.append(category)
+    if subcategory is not None:
+        sets.append("subcategory=?"); vals.append(subcategory.strip() or None)
+    if not sets:
+        return 0
+    with _conn() as c:
+        if category:
+            _ensure_category(c, category)
+        c.execute(f"UPDATE transactions SET {', '.join(sets)}" + clause, vals + args)
         return c.total_changes
 
 
@@ -266,6 +291,13 @@ def update_note(txn_id, note):
     with _conn() as c:
         c.execute("UPDATE transactions SET note=? WHERE id=?", (note or None, txn_id))
         return c.total_changes
+
+
+def list_subcategories():
+    with _conn() as c:
+        return [r["subcategory"] for r in c.execute(
+            "SELECT DISTINCT subcategory FROM transactions "
+            "WHERE subcategory IS NOT NULL AND subcategory<>'' ORDER BY subcategory")]
 
 
 def list_categories():
@@ -303,6 +335,9 @@ def distinct_values():
                 f"SELECT DISTINCT {name} FROM transactions WHERE {name} IS NOT NULL ORDER BY {name}")]
         return {
             "categories": col("category"),
+            "subcategories": [r[0] for r in c.execute(
+                "SELECT DISTINCT subcategory FROM transactions "
+                "WHERE subcategory IS NOT NULL AND subcategory<>'' ORDER BY subcategory")],
             "banks": col("bank"),
             "cards": col("card_last4"),
             "months": [r[0] for r in c.execute(

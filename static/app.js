@@ -57,8 +57,41 @@ async function loadMeta() {
   fillOpts("#fCategory", "All categories", META.all_categories.map(c => [c, c]));
   fillOpts("#fBank", "All banks", META.banks.map(b => [b, b]));
   fillOpts("#fCard", "All cards", META.cards.map(c => [c, "•••• " + c]));
+  const subs = META.all_subcategories || [];
+  fillOpts("#fSubcategory", "All subcategories", subs.map(s => [s, s]));
+  $("#subList").innerHTML = subs.map(s => `<option value="${esc(s)}">`).join("");
   populateCatSelects();
 }
+
+// shared ledger filter map (id ↔ query key) used by list, bulk, and export
+const FMAP = { search: "#fSearch", month: "#fMonth", category: "#fCategory",
+  subcategory: "#fSubcategory", bank: "#fBank", card_last4: "#fCard",
+  direction: "#fDirection", section: "#fSection", is_emi: "#fEmi" };
+function currentFilters() {
+  const f = {};
+  for (const [k, sel] of Object.entries(FMAP)) if ($(sel) && $(sel).value) f[k] = $(sel).value;
+  return f;
+}
+
+// Drill from a chart sector into a filtered ledger view, carrying the
+// dashboard's current card/cycle context.
+function drillToLedger(extra) {
+  Object.values(FMAP).forEach(s => $(s).value = "");
+  if ($("#dashCard").value) $("#fCard").value = $("#dashCard").value;
+  if ($("#dashMonth").value) $("#fMonth").value = $("#dashMonth").value;
+  if (extra.category != null) $("#fCategory").value = extra.category;
+  if (extra.section != null) $("#fSection").value = extra.section;
+  $$(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === "ledger"));
+  $$(".view").forEach(s => s.classList.remove("active"));
+  $("#view-ledger").classList.add("active");
+  loadLedger();
+  toast("Filtered ledger" + (extra.category ? ` · ${extra.category}` : "") +
+        (extra.section ? ` · ${extra.section}` : ""));
+}
+const drillOpts = pick => ({
+  onClick: (e, els, chart) => { if (els.length) drillToLedger(pick(chart.data.labels[els[0].index])); },
+  onHover: (e, els) => { e.native.target.style.cursor = els.length ? "pointer" : "default"; },
+});
 function fill(sel, pairs) {
   $(sel).innerHTML = pairs.map(([v, l]) => `<option value="${v}">${l}</option>`).join("");
 }
@@ -137,8 +170,9 @@ async function loadDashboard() {
       datasets: [{ data: cat.map(c => c.total), backgroundColor: PALETTE, borderWidth: 0 }],
     },
     options: {
+      ...drillOpts(label => ({ category: label })),
       plugins: { legend: { position: "right", labels: { boxWidth: 12, font: { size: 11 } } },
-        tooltip: { callbacks: { label: c => `${c.label}: ${inr(c.raw)}` } } },
+        tooltip: { callbacks: { label: c => `${c.label}: ${inr(c.raw)} — click to view` } } },
       cutout: "58%",
     },
   });
@@ -177,8 +211,9 @@ async function loadDashboard() {
       datasets: [{ data: di.map(d => d.total),
         backgroundColor: ["#5b8cff", "#a855f7"], borderWidth: 0 }],
     },
-    options: { cutout: "58%", plugins: { legend: { position: "right" },
-      tooltip: { callbacks: { label: c => `${c.label}: ${inr(c.raw)}` } } } },
+    options: { ...drillOpts(label => ({ section: label })), cutout: "58%",
+      plugins: { legend: { position: "right" },
+        tooltip: { callbacks: { label: c => `${c.label}: ${inr(c.raw)} — click to view` } } } },
   });
 }
 
@@ -243,11 +278,11 @@ function baseOpts({ stacked }) {
 let ledgerSort = { sort: "txn_date", order: "desc" };
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
-["#fMonth", "#fCategory", "#fBank", "#fCard", "#fDirection"].forEach(s =>
-  $(s).addEventListener("change", loadLedger));
+["#fMonth", "#fCategory", "#fSubcategory", "#fBank", "#fCard", "#fDirection",
+ "#fSection", "#fEmi"].forEach(s => $(s).addEventListener("change", loadLedger));
 $("#fSearch").addEventListener("input", debounce(loadLedger));
 $("#fClear").addEventListener("click", () => {
-  ["#fSearch", "#fMonth", "#fCategory", "#fBank", "#fCard", "#fDirection"].forEach(s => $(s).value = "");
+  Object.values(FMAP).forEach(s => $(s).value = "");
   loadLedger();
 });
 $$("th.sortable").forEach(th => th.addEventListener("click", () => {
@@ -257,10 +292,7 @@ $$("th.sortable").forEach(th => th.addEventListener("click", () => {
 }));
 
 async function loadLedger() {
-  const p = new URLSearchParams();
-  const map = { search: "#fSearch", month: "#fMonth", category: "#fCategory",
-    bank: "#fBank", card_last4: "#fCard", direction: "#fDirection" };
-  for (const [k, sel] of Object.entries(map)) if ($(sel).value) p.set(k, $(sel).value);
+  const p = new URLSearchParams(currentFilters());
   p.set("sort", ledgerSort.sort); p.set("order", ledgerSort.order);
   const { transactions } = await api("/api/transactions?" + p);
   $("#ledgerCount").textContent = `${transactions.length} transactions`;
@@ -277,8 +309,10 @@ async function loadLedger() {
       opts.map(c => `<option ${c === t.category ? "selected" : ""}>${c}</option>`).join("") +
       `</select>`;
     const pills =
-      (t.section === "International" ? `<span class="pill intl">INTL</span>` : "") +
-      (t.is_emi ? `<span class="pill emi">EMI</span>` : "");
+      (t.section === "International"
+        ? `<span class="pill intl clickpill" data-fk="section" data-fv="International" title="Filter to international">INTL</span>` : "") +
+      (t.is_emi
+        ? `<span class="pill emi clickpill" data-fk="is_emi" data-fv="1" title="Filter to EMI">EMI</span>` : "");
     const fx = t.foreign_amount ? `${t.foreign_currency} ${Number(t.foreign_amount).toLocaleString("en-IN")}` : "—";
     const amtCls = t.direction === "credit" ? "amt-credit" : "amt-debit";
     const sign = t.direction === "credit" ? "− " : "";
@@ -287,7 +321,9 @@ async function loadLedger() {
       <td class="desc-cell"><div class="desc-main">${esc(t.merchant || t.description)}${pills}</div>
         <div class="desc-sub">${esc(t.city ? t.city + " · " : "")}${esc(t.cardholder || "")}${t.ref_no ? " · ref " + esc(String(t.ref_no).slice(0, 14)) : ""}</div></td>
       <td>${t.bank}<div class="desc-sub">•••• ${t.card_last4}</div></td>
-      <td>${sel}</td>
+      <td><div class="cat-cell">${sel}
+        <input class="sub-input" data-id="${t.id}" list="subList"
+               value="${esc(t.subcategory || "")}" placeholder="+ subcategory" /></div></td>
       <td><input class="note-input" data-id="${t.id}" value="${esc(t.note || "")}"
             placeholder="add note / tag…" /></td>
       <td class="num">${fx}</td>
@@ -315,24 +351,61 @@ async function loadLedger() {
     inp.addEventListener("blur", save);
     inp.addEventListener("keydown", save);
   });
+  $$(".sub-input", body).forEach(inp => {
+    const save = async e => {
+      if (e.type === "keydown" && e.key !== "Enter") return;
+      if (e.target.dataset.saved === e.target.value) return;
+      await api(`/api/transactions/${e.target.dataset.id}/subcategory`,
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subcategory: e.target.value }) });
+      e.target.dataset.saved = e.target.value;
+      toast("Subcategory saved");
+      if (e.type === "keydown") e.target.blur(); else refreshSubList();
+    };
+    inp.dataset.saved = inp.value;
+    inp.addEventListener("blur", save);
+    inp.addEventListener("keydown", save);
+  });
+  $$(".clickpill", body).forEach(p => p.addEventListener("click", e => {
+    e.stopPropagation();
+    const sel = e.target.dataset.fk === "section" ? "#fSection" : "#fEmi";
+    $(sel).value = e.target.dataset.fv;
+    loadLedger();
+  }));
+}
+
+// keep the subcategory datalist fresh after a new value is typed
+async function refreshSubList() {
+  const d = await api("/api/filters");
+  META.all_subcategories = d.all_subcategories || [];
+  $("#subList").innerHTML = META.all_subcategories.map(s => `<option value="${esc(s)}">`).join("");
+  const cur = $("#fSubcategory").value;
+  fillOpts("#fSubcategory", "All subcategories", META.all_subcategories.map(s => [s, s]));
+  $("#fSubcategory").value = cur;
 }
 
 // bulk tag, new category, export
 function populateCatSelects() {
-  $("#bulkCat").innerHTML = META.all_categories.map(c => `<option>${esc(c)}</option>`).join("");
+  $("#bulkCat").innerHTML = `<option value="">— category —</option>` +
+    META.all_categories.map(c => `<option>${esc(c)}</option>`).join("");
 }
 $("#bulkApply").addEventListener("click", async () => {
   const cat = $("#bulkCat").value;
-  const map = { search: "#fSearch", month: "#fMonth", category: "#fCategory",
-    bank: "#fBank", card_last4: "#fCard", direction: "#fDirection" };
-  const filters = {};
-  for (const [k, sel] of Object.entries(map)) if ($(sel).value) filters[k] = $(sel).value;
+  const sub = $("#bulkSub").value.trim();
+  if (!cat && !sub) { toast("Pick a category or type a subcategory"); return; }
   const n = +$("#bulkCount").textContent;
-  if (!confirm(`Set category to "${cat}" for all ${n} matching transaction(s)?`)) return;
+  const what = [cat && `category “${cat}”`, sub && `subcategory “${sub}”`]
+    .filter(Boolean).join(" + ");
+  if (!confirm(`Set ${what} for all ${n} matching transaction(s)?`)) return;
+  const payload = { filters: currentFilters() };
+  if (cat) payload.category = cat;
+  if (sub) payload.subcategory = sub;          // only sent when provided
   const r = await api("/api/transactions/bulk-category",
     { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ category: cat, filters }) });
+      body: JSON.stringify(payload) });
   toast(`Updated ${r.updated} transaction(s)`);
+  $("#bulkSub").value = "";
+  if (sub) await refreshSubList();
   await loadLedger();
 });
 $("#newCat").addEventListener("click", async () => {
@@ -349,10 +422,7 @@ $("#newCat").addEventListener("click", async () => {
   await loadLedger();           // refresh inline dropdowns with the new option
 });
 $("#exportBtn").addEventListener("click", () => {
-  const p = new URLSearchParams();
-  const map = { search: "#fSearch", month: "#fMonth", category: "#fCategory",
-    bank: "#fBank", card_last4: "#fCard", direction: "#fDirection" };
-  for (const [k, sel] of Object.entries(map)) if ($(sel).value) p.set(k, $(sel).value);
+  const p = new URLSearchParams(currentFilters());
   p.set("sort", ledgerSort.sort); p.set("order", ledgerSort.order);
   window.location = "/api/export.xlsx?" + p.toString();
 });
