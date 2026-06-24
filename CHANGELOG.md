@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-06-24
+### Added
+- **Two-level tagging** — each transaction now has a free-text **subcategory**
+  alongside its category (e.g. Travel → Hotel, Shopping → Vacation), editable
+  inline with autocomplete and settable in bulk. Subcategory is searchable,
+  filterable, and included in the Excel export.
+- **Clickable tags** — the INTL and EMI badges in the ledger filter the grid to
+  international / EMI transactions in one click. New Section and EMI filters back
+  them.
+- **Chart drill-down** — clicking a sector of the "Spend by Category" or
+  "Domestic vs International" doughnut opens the ledger filtered to that slice,
+  carrying the dashboard's current card/cycle context.
+
 ## [0.4.0] — 2026-06-24
 ### Changed
 - **Rebrand to Lucent** — _"Finances, illuminated."_ New name, wordmark, and
@@ -45,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ledger with inline re-tagging, and a reconciliation engine.
 - Import portal with statement-password support; all processing stays local.
 
-[Unreleased]: https://github.com/akshatc19/lucent-finance/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/akshatc19/lucent-finance/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/akshatc19/lucent-finance/releases/tag/v0.5.0
 [0.4.0]: https://github.com/akshatc19/lucent-finance/releases/tag/v0.4.0
 [0.3.0]: https://github.com/akshatc19/lucent-finance/releases/tag/v0.3.0
 [0.2.0]: https://github.com/akshatc19/lucent-finance/releases/tag/v0.2.0

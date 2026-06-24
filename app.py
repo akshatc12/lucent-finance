@@ -56,8 +56,8 @@ def api_import():
 
 
 def _filters_from_args(src):
-    keys = ("search", "category", "bank", "card_last4", "direction", "section",
-            "month", "date_from", "date_to", "sort", "order")
+    keys = ("search", "category", "subcategory", "bank", "card_last4", "direction",
+            "section", "is_emi", "month", "date_from", "date_to", "sort", "order")
     return {k: src.get(k) for k in keys if src.get(k)}
 
 
@@ -75,6 +75,12 @@ def api_set_category(txn_id):
     return jsonify({"updated": db.update_category(txn_id, cat)})
 
 
+@app.post("/api/transactions/<int:txn_id>/subcategory")
+def api_set_subcategory(txn_id):
+    body = request.get_json(force=True, silent=True) or {}
+    return jsonify({"updated": db.update_subcategory(txn_id, body.get("subcategory", ""))})
+
+
 @app.post("/api/transactions/<int:txn_id>/note")
 def api_set_note(txn_id):
     body = request.get_json(force=True, silent=True) or {}
@@ -84,11 +90,12 @@ def api_set_note(txn_id):
 @app.post("/api/transactions/bulk-category")
 def api_bulk_category():
     body = request.get_json(force=True, silent=True) or {}
-    cat = body.get("category")
-    if not cat:
-        return jsonify({"error": "category required"}), 400
+    cat = body.get("category") or None
+    sub = body.get("subcategory")  # may be "" to clear, or None to leave alone
+    if not cat and sub is None:
+        return jsonify({"error": "category or subcategory required"}), 400
     filters = _filters_from_args(body.get("filters") or {})
-    return jsonify({"updated": db.bulk_update_category(filters, cat)})
+    return jsonify({"updated": db.bulk_update(filters, category=cat, subcategory=sub)})
 
 
 @app.get("/api/categories")
@@ -120,6 +127,7 @@ def api_delete_statement(stmt_id):
 def api_filters():
     d = db.distinct_values()
     d["all_categories"] = db.list_categories()
+    d["all_subcategories"] = db.list_subcategories()
     return jsonify(d)
 
 
@@ -134,8 +142,9 @@ def api_export():
     ws = wb.active
     ws.title = "Ledger"
     headers = ["Date", "Billing cycle", "Bank", "Card", "Description", "Merchant",
-               "City", "Category", "Note", "Section", "Direction", "Foreign ccy",
-               "Foreign amt", "Amount (INR)", "EMI", "Reward pts", "Reference", "Cardholder"]
+               "City", "Category", "Subcategory", "Note", "Section", "Direction",
+               "Foreign ccy", "Foreign amt", "Amount (INR)", "EMI", "Reward pts",
+               "Reference", "Cardholder"]
     ws.append(headers)
     head_fill = PatternFill("solid", fgColor="1F2937")
     for cell in ws[1]:
@@ -147,11 +156,12 @@ def api_export():
         ws.append([
             t["txn_date"], t.get("cycle_month"), t["bank"], t["card_last4"],
             t["description"], t.get("merchant"), t.get("city"), t.get("category"),
-            t.get("note"), t.get("section"), t["direction"], t.get("foreign_currency"),
-            t.get("foreign_amount"), signed, "Yes" if t.get("is_emi") else "",
-            t.get("reward_points"), str(t.get("ref_no") or ""), t.get("cardholder"),
+            t.get("subcategory"), t.get("note"), t.get("section"), t["direction"],
+            t.get("foreign_currency"), t.get("foreign_amount"), signed,
+            "Yes" if t.get("is_emi") else "", t.get("reward_points"),
+            str(t.get("ref_no") or ""), t.get("cardholder"),
         ])
-    widths = [12, 13, 8, 8, 40, 26, 14, 20, 28, 14, 9, 11, 12, 14, 6, 10, 22, 18]
+    widths = [12, 13, 8, 8, 40, 26, 14, 20, 18, 28, 14, 9, 11, 12, 14, 6, 10, 22, 18]
     for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"

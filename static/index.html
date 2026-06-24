@@ -102,9 +102,10 @@
       </header>
 
       <div class="filters">
-        <input id="fSearch" class="input" type="search" placeholder="Search description / merchant / category…" />
+        <input id="fSearch" class="input" type="search" placeholder="Search description / merchant / category / tag…" />
         <select id="fMonth" class="select"><option value="">All months</option></select>
         <select id="fCategory" class="select"><option value="">All categories</option></select>
+        <select id="fSubcategory" class="select"><option value="">All subcategories</option></select>
         <select id="fBank" class="select"><option value="">All banks</option></select>
         <select id="fCard" class="select"><option value="">All cards</option></select>
         <select id="fDirection" class="select">
@@ -112,18 +113,30 @@
           <option value="debit">Debit only</option>
           <option value="credit">Credit only</option>
         </select>
+        <select id="fSection" class="select">
+          <option value="">Domestic + Intl</option>
+          <option value="Domestic">Domestic</option>
+          <option value="International">International</option>
+        </select>
+        <select id="fEmi" class="select">
+          <option value="">EMI + Non-EMI</option>
+          <option value="1">EMI only</option>
+          <option value="0">Non-EMI</option>
+        </select>
         <button id="fClear" class="btn ghost">Clear</button>
       </div>
 
       <div class="bulkbar">
         <div class="bulk-left">
-          <span class="muted">Bulk-tag <b id="bulkCount">0</b> result(s):</span>
-          <select id="bulkCat" class="select"></select>
+          <span class="muted">Bulk-tag <b id="bulkCount">0</b>:</span>
+          <select id="bulkCat" class="select"><option value="">— category —</option></select>
+          <input id="bulkSub" class="input bulk-sub" list="subList" placeholder="subcategory (optional)" />
           <button id="bulkApply" class="btn primary" disabled>Apply to all results</button>
           <button id="newCat" class="btn ghost">＋ New category</button>
         </div>
         <button id="exportBtn" class="btn ghost">⬇ Export to Excel</button>
       </div>
+      <datalist id="subList"></datalist>
 
       <div class="table-wrap">
         <table class="ledger">
@@ -132,7 +145,7 @@
               <th data-sort="txn_date" class="sortable">Date</th>
               <th data-sort="description" class="sortable">Description</th>
               <th>Card</th>
-              <th data-sort="category" class="sortable">Category</th>
+              <th data-sort="category" class="sortable">Category → Subcategory</th>
               <th>Note / personal tag</th>
               <th class="num">Foreign</th>
               <th data-sort="amount" class="sortable num">Amount (₹)</th>
