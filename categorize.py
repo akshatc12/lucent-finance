@@ -8,6 +8,7 @@ import re
 # Ordered list — first matching rule wins.
 CATEGORIES = [
     "Payments & Credits",
+    "Refunds & Reversals",
     "Fees, Taxes & Interest",
     "Groceries",
     "Food & Dining",
@@ -40,14 +41,20 @@ _RULES = [
 ]
 
 
+# A credit is a genuine bill settlement (vs. a merchant refund/reversal).
+_PAYMENT_RE = re.compile(
+    r"\b(payment received|bbps|bppy|cc payment|neft|imps|rtgs|upi.*received"
+    r"|autopay|auto debit|standing instruction|e-?mandate|received)\b", re.I)
+
+
 def categorise(description: str, is_credit: bool = False) -> str:
     d = (description or "").lower()
     if is_credit:
-        # Payments are credits, but a refund/reversal credit is still "Payments & Credits".
-        for cat, pat in _RULES:
-            if cat == "Payments & Credits" and re.search(pat, d):
-                return cat
-        return "Payments & Credits"
+        # Settling the bill → Payments & Credits; a merchant refund/reversal
+        # (e.g. a cancelled-trip refund) is bucketed separately.
+        if _PAYMENT_RE.search(d):
+            return "Payments & Credits"
+        return "Refunds & Reversals"
     for cat, pat in _RULES:
         if re.search(pat, d):
             return cat
