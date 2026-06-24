@@ -3,7 +3,7 @@
   <h1>Lucent</h1>
   <p><em>Finances, illuminated.</em></p>
   <p>
-    <img alt="version" src="https://img.shields.io/badge/version-0.5.0-6d5cff" />
+    <img alt="version" src="https://img.shields.io/badge/version-0.6.0-6d5cff" />
     <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e" />
     <img alt="python" src="https://img.shields.io/badge/python-3.9%2B-blue" />
     <img alt="private" src="https://img.shields.io/badge/%F0%9F%94%92-Private%20Terminal-1d2430" />

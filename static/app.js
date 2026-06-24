@@ -126,20 +126,38 @@ async function loadDashboard() {
   const mom = (cur && prev && prev.total_due)
     ? ((cur.total_due - prev.total_due) / prev.total_due * 100) : null;
   const cnt = counts[focusM] || { n: 0 };
+  const opening = cur ? (cur.previous_balance || 0) : 0;
+  const spend = cur ? (cur.purchases || 0) : 0;
+  const pay = cur ? (cur.payments || 0) : 0;
+  const due = cur ? (cur.total_due || 0) : 0;
+  const refunds = cnt.refunds || 0;
+  const cycLbl = focusM ? monLabel(focusM) : "—";
 
+  // KPIs follow the statement's own equation: opening + spend − payments = due
   const kpis = [
-    [`Total payable — ${focusM ? monLabel(focusM) : "—"}`, inr(cur ? cur.total_due : 0),
-      mom == null ? "net amount due this cycle" :
+    ["Opening balance", inr(opening), "carried in from last bill", ""],
+    ["+ New spend", inr(spend), "gross purchases this cycle", ""],
+    ["− Payments &amp; credits", inr(pay),
+      refunds ? `incl. ${inr(refunds)} reversals` : "payments + credits", ""],
+    [`= Total payable · ${cycLbl}`, inr(due),
+      mom == null ? "the bill generated this cycle" :
         `${mom >= 0 ? "▲" : "▼"} ${Math.abs(mom).toFixed(1)}% vs ${prev ? monLabel(prev.month) : ""}`,
       mom == null ? "" : (mom >= 0 ? "up" : "down")],
-    ["New spend this cycle", inr(cur ? cur.purchases : 0), "purchases / debits", ""],
-    ["Payments &amp; credits", inr(cur ? cur.payments : 0), "incl. reversals &amp; last bill", ""],
-    ["Transactions this cycle", cnt.n || 0,
-      cur && cur.previous_balance ? `carried fwd ${inr(cur.previous_balance)}` : "this billing cycle", ""],
   ];
-  $("#kpis").innerHTML = kpis.map(([l, v, s, cls]) =>
-    `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div>
-     <div class="sub ${cls}">${s}</div></div>`).join("");
+  $("#kpis").innerHTML = kpis.map(([l, v, s, cls], i) =>
+    `<div class="kpi${i === 3 ? " kpi-due" : ""}"><div class="label">${l}</div>
+     <div class="value">${v}</div><div class="sub ${cls}">${s}</div></div>`).join("");
+
+  // Reconciliation strip — makes the arithmetic explicit
+  const recon = Math.abs(opening + spend - pay - due) <= 1;
+  $("#billEqn").innerHTML = cur
+    ? `<span class="eq-part">${inr(opening)} <i>opening</i></span><span class="eq-op">+</span>
+       <span class="eq-part">${inr(spend)} <i>new spend</i></span><span class="eq-op">−</span>
+       <span class="eq-part">${inr(pay)} <i>payments &amp; credits</i></span><span class="eq-op">=</span>
+       <span class="eq-part eq-due">${inr(due)} <i>total payable</i></span>
+       <span class="eq-check">${recon ? "✓ reconciles" : "⚠ check"}</span>
+       <span class="eq-meta">· ${cnt.n || 0} txns · ${cycLbl} bill</span>`
+    : `<span class="eq-meta">Import a statement to see your bill breakdown.</span>`;
 
   // Headline: net amount due per cycle, stacked by card
   drawDue(stats.cycles_by_card, cycles);
@@ -159,10 +177,12 @@ async function loadDashboard() {
     },
     options: baseOpts({ stacked: false }),
   });
-  $("#catScope").textContent = focusM ? "· " + monLabel(focusM) : "· all cycles";
 
-  // Category doughnut
+  // Category doughnut — scope label reflects the ACTUAL data scope
+  const scopeLbl = month ? monLabel(month) : "All cycles";
   const cat = stats.by_category.filter(c => c.total > 0);
+  const catTotal = cat.reduce((s, c) => s + c.total, 0);
+  $("#catScope").textContent = `${scopeLbl} · ${inr(catTotal)} total`;
   draw("chCategory", {
     type: "doughnut",
     data: {
@@ -204,6 +224,8 @@ async function loadDashboard() {
 
   // Domestic vs Intl
   const di = stats.dom_intl;
+  const diTotal = di.reduce((s, d) => s + d.total, 0);
+  $("#diScope").textContent = `${scopeLbl} · ${inr(diTotal)} total`;
   draw("chDomIntl", {
     type: "doughnut",
     data: {

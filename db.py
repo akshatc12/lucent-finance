@@ -379,11 +379,14 @@ def stats_overview(card=None, month=None):
             FROM statements{sc} ORDER BY month, card_last4""", sa)
 
         twc = " WHERE cycle_month IS NOT NULL" + (" AND card_last4=?" if card else "")
-        cycle_counts = {r["month"]: {"n": r["n"], "debit": r["debit"], "credit": r["credit"]}
+        cycle_counts = {r["month"]: {"n": r["n"], "debit": r["debit"],
+                                     "credit": r["credit"], "refunds": r["refunds"]}
                         for r in c.execute(f"""
             SELECT cycle_month month, COUNT(*) n,
                    SUM(CASE WHEN direction='debit'  THEN amount ELSE 0 END) debit,
-                   SUM(CASE WHEN direction='credit' THEN amount ELSE 0 END) credit
+                   SUM(CASE WHEN direction='credit' THEN amount ELSE 0 END) credit,
+                   SUM(CASE WHEN direction='credit' AND category<>'Payments & Credits'
+                            THEN amount ELSE 0 END) refunds
             FROM transactions{twc} GROUP BY month""", ([card] if card else []))}
 
         # ---- transaction snapshot (scoped to card + optional cycle) --------
