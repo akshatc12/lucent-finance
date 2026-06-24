@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lucent — Finances, illuminated.</title>
+  <meta name="description" content="Lucent — a private, local-first credit-card analytics dashboard and ledger." />
+  <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+  <link rel="apple-touch-icon" href="favicon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <script src="chart.umd.min.js"></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand">
+      <img class="logo" src="favicon.svg" alt="Lucent logo" width="40" height="40" />
+      <div>
+        <div class="brand-title">Lucent</div>
+        <div class="brand-sub">Finances, illuminated.</div>
+      </div>
+    </div>
+    <nav>
+      <button class="nav-item active" data-view="dashboard"><span>📊</span> Dashboard</button>
+      <button class="nav-item" data-view="ledger"><span>📒</span> Ledger</button>
+      <button class="nav-item" data-view="reconcile"><span>⚖️</span> Reconciliation</button>
+      <button class="nav-item" data-view="import"><span>⬆️</span> Import</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div id="cardChips" class="card-chips"></div>
+      <div class="privacy-badge">
+        <span class="dot"></span>
+        <div>
+          <div class="privacy-title">Private Terminal</div>
+          <div class="privacy-sub">Processed locally · nothing leaves this device</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <main class="content">
+    <!-- DASHBOARD -->
+    <section id="view-dashboard" class="view active">
+      <header class="view-head">
+        <h1>Dashboard</h1>
+        <div class="head-actions">
+          <select id="dashCard" class="select" title="Filter by card"></select>
+          <select id="dashMonth" class="select" title="Focus a billing cycle"></select>
+        </div>
+      </header>
+
+      <div id="kpis" class="kpi-row"></div>
+
+      <div class="card">
+        <div class="card-head">
+          <h3>Net Amount Due by Billing Cycle</h3>
+          <span class="muted">Total payable per statement — stacked by card</span>
+        </div>
+        <canvas id="chDue" height="92"></canvas>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>Spend by Category <span id="catScope" class="muted"></span></h3></div>
+          <canvas id="chCategory" height="150"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>New Spend vs Credits by Cycle</h3></div>
+          <canvas id="chMonthly" height="150"></canvas>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>Category trend (month over month)</h3></div>
+          <canvas id="chCatTrend" height="150"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Spend by Card</h3></div>
+          <canvas id="chCard" height="150"></canvas>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-head"><h3>Top Merchants</h3></div>
+          <div id="topMerchants" class="bars"></div>
+        </div>
+        <div class="card">
+          <div class="card-head"><h3>Domestic vs International</h3></div>
+          <canvas id="chDomIntl" height="150"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- LEDGER -->
+    <section id="view-ledger" class="view">
+      <header class="view-head">
+        <h1>Transaction Ledger</h1>
+        <div class="head-actions">
+          <span id="ledgerCount" class="muted"></span>
+        </div>
+      </header>
+
+      <div class="filters">
+        <input id="fSearch" class="input" type="search" placeholder="Search description / merchant / category…" />
+        <select id="fMonth" class="select"><option value="">All months</option></select>
+        <select id="fCategory" class="select"><option value="">All categories</option></select>
+        <select id="fBank" class="select"><option value="">All banks</option></select>
+        <select id="fCard" class="select"><option value="">All cards</option></select>
+        <select id="fDirection" class="select">
+          <option value="">Debit + Credit</option>
+          <option value="debit">Debit only</option>
+          <option value="credit">Credit only</option>
+        </select>
+        <button id="fClear" class="btn ghost">Clear</button>
+      </div>
+
+      <div class="bulkbar">
+        <div class="bulk-left">
+          <span class="muted">Bulk-tag <b id="bulkCount">0</b> result(s):</span>
+          <select id="bulkCat" class="select"></select>
+          <button id="bulkApply" class="btn primary" disabled>Apply to all results</button>
+          <button id="newCat" class="btn ghost">＋ New category</button>
+        </div>
+        <button id="exportBtn" class="btn ghost">⬇ Export to Excel</button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="ledger">
+          <thead>
+            <tr>
+              <th data-sort="txn_date" class="sortable">Date</th>
+              <th data-sort="description" class="sortable">Description</th>
+              <th>Card</th>
+              <th data-sort="category" class="sortable">Category</th>
+              <th>Note / personal tag</th>
+              <th class="num">Foreign</th>
+              <th data-sort="amount" class="sortable num">Amount (₹)</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- RECONCILIATION -->
+    <section id="view-reconcile" class="view">
+      <header class="view-head">
+        <h1>Reconciliation Engine</h1>
+        <div class="head-actions"><span class="muted">Parsed transactions vs. printed statement totals</span></div>
+      </header>
+      <div id="reconCards" class="recon-list"></div>
+    </section>
+
+    <!-- IMPORT -->
+    <section id="view-import" class="view">
+      <header class="view-head"><h1>Import Portal</h1></header>
+
+      <div class="card import-card">
+        <div id="dropzone" class="dropzone">
+          <div class="dz-icon">⬆️</div>
+          <p><strong>Drop statement PDFs here</strong> or click to browse</p>
+          <p class="muted">HDFC &amp; ICICI credit-card statements supported</p>
+          <input id="fileInput" type="file" accept="application/pdf" multiple hidden />
+        </div>
+        <div id="fileList" class="file-list"></div>
+
+        <div class="pw-row">
+          <label for="pw">Statement password</label>
+          <input id="pw" class="input" type="password" placeholder="Leave blank if not protected" autocomplete="off" />
+          <button id="importBtn" class="btn primary" disabled>Import statements</button>
+        </div>
+        <div id="importResults" class="import-results"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Imported statements</h3></div>
+        <div class="table-wrap">
+          <table class="ledger">
+            <thead>
+              <tr><th>Bank</th><th>Card</th><th>Statement date</th><th>Period</th>
+                  <th class="num">Total due (₹)</th><th>Imported</th><th></th></tr>
+            </thead>
+            <tbody id="stmtBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
