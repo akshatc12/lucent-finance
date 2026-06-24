@@ -47,7 +47,7 @@ device.**
 ## Setup & run
 
 ```bash
-git clone https://github.com/BruceWayne1219/lucent-finance.git
+git clone https://github.com/akshatc12/lucent-finance.git
 cd lucent-finance
 python3 -m pip install -r requirements.txt      # Flask + pdfplumber + openpyxl
 python3 app.py                                  # serves http://127.0.0.1:5000
