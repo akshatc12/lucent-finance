@@ -1,8 +1,9 @@
-"""Bank-specific statement parsing engines for HDFC (Diners/other) and ICICI.
+"""Bank-specific statement parsing engines for HDFC (Diners/other), ICICI and
+Axis (Neo / MY Zone / other).
 
 Each parser returns a dict:
   {
-    "bank": "HDFC" | "ICICI",
+    "bank": "HDFC" | "ICICI" | "AXIS",
     "card_last4": "1960",
     "card_label": "Diners Black Credit Card",
     "statement_date": "2026-06-17",      # ISO or None
@@ -18,7 +19,9 @@ Each parser returns a dict:
   }
 
 Parsing is layout-based via pdfplumber. The HDFC font renders the Rupee glyph as
-"C"; ICICI renders it as a back-tick "`". Both are handled.
+"C"; ICICI renders it as a back-tick "`". Both are handled. Axis renders a real
+"₹" but wraps long merchant names across the row, so it is parsed from word
+coordinates instead of the flat text stream.
 """
 import re
 import datetime as _dt
@@ -85,8 +88,25 @@ def _read_pages(path, password=None):
     return pages
 
 
+def _read_doc(path, password=None):
+    """Read text *and* positioned words per page in a single open.
+
+    HDFC/ICICI parse from the flat text stream; Axis statements lay long
+    merchant names out as multi-line cells centred on the date/amount row, so
+    that parser reconstructs rows from word coordinates instead.
+    """
+    texts, word_pages = [], []
+    with pdfplumber.open(path, password=password) as pdf:
+        for p in pdf.pages:
+            texts.append(p.extract_text() or "")
+            word_pages.append(p.extract_words(use_text_flow=False))
+    return texts, word_pages
+
+
 def detect_bank(pages):
     head = "\n".join(pages[:2]).lower()
+    if "axis" in head:
+        return "AXIS"
     if "icici" in head:
         return "ICICI"
     if "hdfc" in head or "diners" in head:
@@ -483,13 +503,223 @@ def _parse_icici_body(date_s, serno, buf):
 
 
 # ---------------------------------------------------------------------------
+# Axis (Neo / MY Zone and other consumer cards)
+# ---------------------------------------------------------------------------
+#
+# Axis statements are laid out as a bordered table with four columns:
+#   date | transaction details | amount (INR) | debit/credit
+# pdfplumber's flat text stream is unreliable here because a long merchant name
+# wraps to several physical lines that straddle the (vertically-centred) date /
+# amount / direction row — e.g. "4384 BOOTS-SIAM PREMIUM" sits *above* the row
+# and "O,SAMUTPRAKAN" *below* it. So we rebuild each row from word coordinates:
+# every transaction has exactly one date triple, one amount and one Debit/Credit
+# token sharing a y-position; the description is whichever detail-column words
+# are vertically nearest that anchor row.
+
+# Column x0 bands (points). The template is stable across Axis card variants.
+_AX_DATE_MAXX = 130      # date column ends here
+_AX_DESC_MINX = 130      # transaction-details column
+_AX_DESC_MAXX = 345
+_AX_AMT_MINX = 345       # amount column (₹ + number)
+_AX_AMT_MAXX = 448
+_AX_DIR_MINX = 448       # Debit / Credit column
+
+_AX_DATE = re.compile(r"^(\d{1,2})\s+([A-Za-z]{3})\s+'(\d{2})$")
+_AX_NUM = re.compile(r"^₹?\s*([\d,]+\.\d{2})$")
+# Foreign cities/markers seen on Axis international spends (statement has no
+# explicit Domestic/International section, so we infer it).
+_AX_FOREIGN = ("BANGKOK", "SAMUTPRAKAN", "PHUKET", "PATTAYA", "CHIANG",
+               "SINGAPORE", "DUBAI", "ABU DHABI", "LONDON", "PARIS", "NEW YORK",
+               "BALI", "KUALA LUMPUR", "TOKYO", "HONG KONG", "COLOMBO",
+               "KATHMANDU", "MALDIVES", "NUSA", "DENPASAR")
+
+
+def _ax_date(day, mon, yy):
+    m = _MONTHS.get(mon[:3].lower())
+    if not m:
+        return None
+    return _iso_dmy(day, m, 2000 + int(yy))
+
+
+def _ax_lines(words):
+    """Cluster a page's words into visual rows by their `top` coordinate."""
+    if not words:
+        return []
+    ws = sorted(words, key=lambda w: (round(w["top"], 1), w["x0"]))
+    lines, cur, cur_top = [], [], None
+    for w in ws:
+        if cur_top is None or abs(w["top"] - cur_top) <= 4:
+            cur.append(w)
+            cur_top = w["top"] if cur_top is None else cur_top
+        else:
+            lines.append((cur_top, cur))
+            cur, cur_top = [w], w["top"]
+    if cur:
+        lines.append((cur_top, cur))
+    return lines
+
+
+def parse_axis(pages, word_pages, file_name=""):
+    text = "\n".join(pages)
+    summary = {}
+
+    # ---- card / variant / dates ---------------------------------------
+    variant = "Credit"
+    mv = re.search(r"Axis Bank\s+(.+?)\s+Card\s+Monthly Statement", text, re.I)
+    if mv:
+        variant = mv.group(1).strip()
+    label = f"Axis {variant} Credit Card"
+
+    last4 = None
+    mc = re.search(r"Credit Card Number\s*:?\s*(\d{4}[X]{4,}\d{4})", text)
+    if mc:
+        last4 = re.sub(r"[^\d]", "", mc.group(1))[-4:]
+
+    # Payment summary: "₹ <total due> ₹ <min due> <due date>"
+    mp = re.search(r"Total Payment Due.*?\n\s*₹\s*([\d,]+\.\d{2})\s+"
+                   r"₹\s*([\d,]+\.\d{2})\s+(\d{1,2}\s+[A-Za-z]{3}\s+'\d{2})",
+                   text, re.S)
+    due_date = None
+    if mp:
+        summary["total_due"] = _to_float(mp.group(1))
+        summary["min_due"] = _to_float(mp.group(2))
+        dm = _AX_DATE.match(mp.group(3).strip())
+        if dm:
+            due_date = _ax_date(*dm.groups())
+
+    # "Jun 2026   ₹ <credit limit>   ₹ <opening balance>"
+    stmt_month = None
+    mo = re.search(r"Selected Statement Month.*?\n\s*([A-Za-z]{3,}\s+\d{4})\s+"
+                   r"₹\s*([\d,]+\.\d{2})\s+₹\s*([\d,]+\.\d{2})", text, re.S)
+    if mo:
+        stmt_month = mo.group(1).strip()
+        summary["previous_balance"] = _to_float(mo.group(3))   # opening balance
+    summary.setdefault("previous_balance", None)
+
+    # statement date: explicit "Date: DD/MM/YYYY" (loan page) else month start
+    stmt_date = None
+    md = re.search(r"Date\s*:\s*(\d{2})/(\d{2})/(\d{4})", text)
+    if md:
+        stmt_date = _iso_dmy(md.group(1), md.group(2), md.group(3))
+    elif stmt_month:
+        mm = re.match(r"([A-Za-z]{3,})\s+(\d{4})", stmt_month)
+        if mm:
+            mon = _MONTHS.get(mm.group(1)[:3].lower())
+            if mon:
+                stmt_date = _iso_dmy(1, mon, mm.group(2))
+
+    # ---- transactions (coordinate-based) ------------------------------
+    txns = []
+    for words in word_pages:
+        lines = _ax_lines(words)
+        anchors = []   # (top, amount, is_credit, txn_date)
+        for top, lws in lines:
+            date_txt = " ".join(w["text"] for w in lws
+                                if w["x0"] < _AX_DATE_MAXX).strip()
+            dm = _AX_DATE.match(date_txt)
+            amt = None
+            for w in lws:
+                if _AX_AMT_MINX <= w["x0"] < _AX_AMT_MAXX:
+                    nm = _AX_NUM.match(w["text"])
+                    if nm:
+                        amt = _to_float(nm.group(1))
+            direction = None
+            for w in lws:
+                if w["x0"] >= _AX_DIR_MINX and w["text"] in ("Debit", "Credit"):
+                    direction = w["text"]
+            # A real transaction row carries all three: date, amount, direction.
+            if dm and amt is not None and direction:
+                anchors.append({"top": top, "amount": amt,
+                                "is_credit": direction == "Credit",
+                                "txn_date": _ax_date(*dm.groups())})
+        if not anchors:
+            continue
+
+        # Assign every detail-column word to its vertically-nearest anchor row.
+        tops = [a["top"] for a in anchors]
+        lo, hi = min(tops), max(tops)
+        buckets = {a["top"]: [] for a in anchors}
+        for w in words:
+            if not (_AX_DESC_MINX <= w["x0"] < _AX_DESC_MAXX):
+                continue
+            if not (lo - 14 <= w["top"] <= hi + 14):
+                continue
+            nearest = min(anchors, key=lambda a: abs(a["top"] - w["top"]))
+            if abs(nearest["top"] - w["top"]) <= 14:
+                buckets[nearest["top"]].append(w)
+
+        for a in anchors:
+            dws = sorted(buckets[a["top"]], key=lambda w: (round(w["top"], 1), w["x0"]))
+            desc = re.sub(r"\s{2,}", " ", " ".join(w["text"] for w in dws)).strip()
+            txns.append(_build_axis_txn(a["txn_date"], desc, a["amount"],
+                                        a["is_credit"]))
+
+    # purchases / payments are the parsed debit & credit sums (reconciles 1:1)
+    summary["purchases"] = round(sum(t["amount"] for t in txns
+                                     if t["direction"] == "debit"), 2)
+    summary["payments_credits"] = round(sum(t["amount"] for t in txns
+                                            if t["direction"] == "credit"), 2)
+    summary.setdefault("cash_advances", 0.0)
+    summary.setdefault("finance_charges", None)
+    summary.setdefault("total_due", None)
+    summary.setdefault("min_due", None)
+
+    return {
+        "bank": "AXIS", "card_last4": last4 or "----", "card_label": label,
+        "statement_date": stmt_date, "period_start": None,
+        "period_end": stmt_date, "due_date": due_date,
+        "summary": summary, "transactions": txns, "file_name": file_name,
+    }
+
+
+def _build_axis_txn(txn_date, desc, amount, is_credit):
+    ref = None
+    mref = re.search(r"#(\S+)", desc)
+    if mref:
+        ref = mref.group(1)
+        desc = (desc[:mref.start()] + desc[mref.end():]).strip()
+    desc = re.sub(r"\s{2,}", " ", desc).strip(" ,")
+    merchant, city = _axis_merchant_city(desc)
+    up = desc.upper()
+    section = "International" if (
+        (city and city.upper() in _AX_FOREIGN) or "FOREIGN CURRENCY" in up
+    ) else "Domestic"
+    is_emi = "emi" in desc.lower()
+
+    from categorize import categorise
+    return {
+        "txn_date": txn_date, "txn_time": None,
+        "description": desc or "(unknown)", "merchant": merchant, "city": city,
+        "amount": amount, "direction": "credit" if is_credit else "debit",
+        "currency": "INR", "foreign_amount": None, "foreign_currency": None,
+        "section": section, "cardholder": None, "reward_points": None,
+        "ref_no": ref, "is_emi": is_emi,
+        "category": categorise(desc, is_credit), "bank": "AXIS",
+    }
+
+
+def _axis_merchant_city(desc):
+    """Axis prints details as 'MERCHANT,CITY' — split on the last comma."""
+    if not desc or "," not in desc:
+        return desc or None, None
+    merchant, city = desc.rsplit(",", 1)
+    merchant, city = merchant.strip(), city.strip()
+    # A trailing comma fragment with no real city -> keep whole as merchant.
+    if not city or not re.search(r"[A-Za-z]", city):
+        return desc, None
+    return merchant or desc, city.title()
+
+
+# ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
 
 def parse_statement(path, password=None, file_name=None):
-    pages = _read_pages(path, password=password)
+    pages, word_pages = _read_doc(path, password=password)
     bank = detect_bank(pages)
-    fn = file_name or path
+    fn = file_name or (path if isinstance(path, str) else "statement.pdf")
+    if bank == "AXIS":
+        return parse_axis(pages, word_pages, file_name=fn)
     if bank == "ICICI":
         return parse_icici(pages, file_name=fn)
     return parse_hdfc(pages, file_name=fn)
