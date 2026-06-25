@@ -1,6 +1,6 @@
 # Lucent — Session Handoff
 
-_Last updated: 2026-06-24 · current release: **v0.6.0**_
+_Last updated: 2026-06-25 · current release: **v0.7.0**_
 
 A working note for picking this project up in a fresh chat. Not a spec — see
 [README.md](README.md), [CHANGELOG.md](CHANGELOG.md), and
@@ -8,7 +8,7 @@ A working note for picking this project up in a fresh chat. Not a spec — see
 
 ## What this is
 **Lucent** ("Finances, illuminated.") — a fully local, private credit-card
-analytics dashboard + ledger. Parses HDFC & ICICI statement PDFs on-device,
+analytics dashboard + ledger. Parses HDFC, ICICI & Axis statement PDFs on-device,
 stores them in SQLite, and presents billing-cycle analytics, a searchable
 ledger, and a reconciliation engine. Nothing leaves the machine ("Private
 Terminal").
@@ -24,7 +24,7 @@ python3 app.py                                 # http://127.0.0.1:5000
 ## Stack & layout
 - **Backend:** Python + Flask, SQLite at `data/ledger.db` (gitignored).
 - `app.py` — REST API + static serving + `.xlsx` export.
-- `parsers.py` — HDFC & ICICI parsing engines (pdfplumber).
+- `parsers.py` — HDFC, ICICI & Axis parsing engines (pdfplumber).
 - `db.py` — schema, additive migrations, import/dedupe, queries, reconciliation, stats.
 - `categorize.py` — keyword auto-categorisation.
 - `static/` — `index.html`, `styles.css`, `app.js` (vanilla JS), `favicon.svg`, vendored `chart.umd.min.js`.
@@ -45,7 +45,11 @@ python3 app.py                                 # http://127.0.0.1:5000
 - **Parsers reconcile to the exact paisa** against printed statement totals.
   HDFC: Rupee glyph renders as `C`; credits flagged by lone `+`/`Cr`/keywords;
   jumbled summary box; EMI/Ref# wraps stitched. ICICI: date+serial concatenated
-  then split; `CR` suffix = credit; intl rows wrap across 2–3 lines.
+  then split; `CR` suffix = credit; intl rows wrap across 2–3 lines. Axis (Neo /
+  MY Zone): **coordinate-based** — rows anchored on date+amount+Debit/Credit,
+  description = detail-column words vertically nearest the anchor (long merchant
+  names wrap above/below the row); totals from the payment-summary box; intl
+  inferred from foreign-city markers; needs the per-statement password.
 - **Dedupe** on import is occurrence-aware on `(card, date, description, amount,
   direction)` — re-importing the same/overlapping statement is safe; genuinely
   repeated same-day charges are kept.

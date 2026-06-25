@@ -11,7 +11,7 @@
 </div>
 
 **Lucent** is a fully local, self-hosted **Private Terminal** for your credit
-cards. It parses HDFC and ICICI statement PDFs on your machine, stores
+cards. It parses HDFC, ICICI and Axis statement PDFs on your machine, stores
 everything in a local SQLite database, and gives you billing-cycle analytics, a
 searchable ledger, and a reconciliation engine. **No data ever leaves your
 device.**
@@ -75,6 +75,12 @@ list of transactions. Highlights of the bank-specific handling:
   credits carry a `CR` suffix. International rows that wrap across 2–3 visual
   lines (foreign amount / `THB` / INR) are re-joined using a column-aware
   completion test.
+- **Axis (Neo / MY Zone / other):** parsed from **word coordinates** rather than
+  the flat text stream, because long merchant names wrap to lines that straddle
+  the vertically-centred date/amount/direction row. Each row is anchored on its
+  date + amount + Debit/Credit token, and its description is the detail-column
+  text vertically nearest that anchor. Total/opening/min-due come from the
+  payment-summary box; international spend is inferred from foreign-city markers.
 
 ## Data & privacy
 
@@ -87,7 +93,7 @@ anywhere.
 
 ```
 app.py            Flask app: REST API + static serving + Excel export
-parsers.py        HDFC & ICICI parsing engines
+parsers.py        HDFC, ICICI & Axis parsing engines
 db.py             SQLite schema, import/dedupe, queries, reconciliation
 categorize.py     keyword-based auto-categorisation
 static/           index.html, styles.css, app.js, favicon.svg, chart.umd.min.js

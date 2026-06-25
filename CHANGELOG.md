@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-25
+### Added
+- **Axis Bank statement parsing** — supports the Neo and MY Zone consumer cards
+  (and other variants sharing the same layout). Reconciles to the exact paisa:
+  Opening balance + debits − credits = Total Payment Due.
+- The Axis parser is **coordinate-based**: long merchant names wrap to several
+  physical lines that straddle the (vertically-centred) date/amount/direction
+  row, so rows are rebuilt from word positions rather than the flat text stream.
+  Each row's description is the detail-column text vertically nearest its anchor.
+- International spend on Axis cards (no explicit section in the statement) is
+  inferred from foreign-city / "Foreign Currency" markers for the Domestic-vs-
+  International breakdown.
+### Changed
+- Auto-categorisation: **MB PAYMENT** (Axis mobile-banking bill payment) is now
+  recognised as **Payments & Credits**; added keyword coverage for Nykaa, Blink
+  Commerce (Blinkit), EaseMyTrip and InterGlobe Aviation.
+- HDFC/ICICI parsing is unchanged — text extraction is identical; all eight
+  existing sample statements still reconcile to the paisa (regression-tested).
+
 ## [0.6.0] — 2026-06-24
 ### Added
 - **Bill breakdown** on the dashboard — KPIs now follow the statement's own
@@ -76,7 +95,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ledger with inline re-tagging, and a reconciliation engine.
 - Import portal with statement-password support; all processing stays local.
 
-[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.0
 [0.6.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.6.0
 [0.5.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.5.0
 [0.4.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.4.0
