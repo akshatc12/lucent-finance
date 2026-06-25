@@ -29,6 +29,145 @@ function draw(id, cfg) {
   charts[id] = new Chart($("#" + id), cfg);
 }
 
+function hexToRgb(h) {
+  const m = h.replace("#", "");
+  return { r: parseInt(m.slice(0, 2), 16), g: parseInt(m.slice(2, 4), 16), b: parseInt(m.slice(4, 6), 16) };
+}
+// progressively lighten a base colour for nested (subcategory) ring slices
+function shade(hex, i, n) {
+  const f = n <= 1 ? 0 : Math.min(0.62, 0.1 + 0.55 * (i / n));
+  const c = hexToRgb(hex), mix = v => Math.round(v + (255 - v) * f);
+  return `rgb(${mix(c.r)},${mix(c.g)},${mix(c.b)})`;
+}
+
+// Make a bar chart that lives in a .chart-scroll wrapper widen with its data so
+// stacks stay readable as billing cycles accumulate (scrolls when it overflows).
+function sizeScroll(canvasId, count, per = 78) {
+  const inner = $("#" + canvasId).parentElement, box = inner.parentElement;
+  const avail = box.clientWidth || 600;
+  inner.style.width = Math.max(count * per, avail) + "px";
+}
+
+// ---------- reusable dropdown: multi-select + searchable/creatable combobox ----------
+let _openDD = null;
+document.addEventListener("click", e => {
+  if (_openDD && !_openDD.el.contains(e.target) && !_openDD.panel.contains(e.target)) _openDD.close();
+});
+// panels are position:fixed, so close on scroll to avoid a stale position
+window.addEventListener("scroll", () => { if (_openDD) _openDD.close(); }, true);
+class Dropdown {
+  constructor(el, opts = {}) {
+    this.el = typeof el === "string" ? $(el) : el;
+    this.o = Object.assign({ multi: false, searchable: false, creatable: false,
+      placeholder: "Select…", allLabel: "All", emptyText: "No matches" }, opts);
+    this.items = [];
+    this.sel = this.o.multi ? new Set() : "";
+    this.el.classList.add("dd");
+    if (!this.o.multi) this.el.classList.add("dd-single");
+    this.el.innerHTML = `<button type="button" class="dd-btn"><span class="dd-label"></span><span class="dd-caret">▾</span></button>`;
+    this.btn = $(".dd-btn", this.el);
+    this.panel = null;
+    this.btn.addEventListener("click", e => { e.stopPropagation(); this.toggle(); });
+    this._label();
+  }
+  setOptions(items) {
+    this.items = items.map(it => typeof it === "string" ? { value: it, label: it } : it);
+    if (this.o.multi) {
+      const vals = new Set(this.items.map(i => i.value));
+      [...this.sel].forEach(v => { if (!vals.has(v)) this.sel.delete(v); });
+    }
+    if (this.panel) this._list();
+    this._label();
+    return this;
+  }
+  value() { return this.o.multi ? [...this.sel] : this.sel; }
+  set(v) {
+    this.sel = this.o.multi ? new Set(Array.isArray(v) ? v : (v ? [v] : [])) : (v || "");
+    if (this.panel) this._list();
+    this._label();
+    return this;
+  }
+  _labelFor(v) { const it = this.items.find(i => i.value === v); return it ? it.label : v; }
+  _label() {
+    const lab = $(".dd-label", this.btn);
+    if (this.o.multi) {
+      const n = this.sel.size;
+      this.btn.classList.toggle("placeholder", !n);
+      lab.textContent = !n ? this.o.allLabel
+        : n <= 2 ? [...this.sel].map(v => this._labelFor(v)).join(", ") : `${n} selected`;
+    } else {
+      this.btn.classList.toggle("placeholder", !this.sel);
+      lab.textContent = this.sel ? this._labelFor(this.sel) : this.o.placeholder;
+    }
+  }
+  _build() {
+    this.panel = document.createElement("div");
+    this.panel.className = "dd-panel";
+    let html = this.o.searchable ? `<input class="dd-search" placeholder="Search…" />` : "";
+    html += `<div class="dd-list"></div>`;
+    if (this.o.multi) html += `<div class="dd-actions"><button class="dd-mini" data-act="all">Select all</button><button class="dd-mini" data-act="none">Clear</button></div>`;
+    this.panel.innerHTML = html;
+    this.el.appendChild(this.panel);
+    this.search = $(".dd-search", this.panel);
+    this.list = $(".dd-list", this.panel);
+    if (this.search) this.search.addEventListener("input", () => this._list());
+    $$(".dd-mini", this.panel).forEach(b => b.addEventListener("click", e => {
+      e.stopPropagation();
+      if (b.dataset.act === "all") this.items.forEach(i => this.sel.add(i.value)); else this.sel.clear();
+      this._list(); this._label(); this._emit();
+    }));
+    this._list();
+  }
+  _list() {
+    const q = ((this.search && this.search.value) || "").trim().toLowerCase();
+    const matches = this.items.filter(i => !q || i.label.toLowerCase().includes(q));
+    let html = matches.map(i => {
+      const on = this.o.multi ? this.sel.has(i.value) : this.sel === i.value;
+      return `<div class="dd-opt${on ? " sel" : ""}" data-v="${esc(i.value)}"><span class="dd-check">${on ? "✓" : ""}</span><span>${esc(i.label)}</span></div>`;
+    }).join("");
+    const exact = this.items.some(i => i.label.toLowerCase() === q);
+    if (this.o.creatable && q && !exact)
+      html += `<div class="dd-opt dd-create" data-create="1"><span class="dd-check"></span><span>+ Create “${esc(this.search.value.trim())}”</span></div>`;
+    if (!html) html = `<div class="dd-empty">${this.o.emptyText}</div>`;
+    this.list.innerHTML = html;
+    $$(".dd-opt", this.list).forEach(opt => opt.addEventListener("click", async e => {
+      e.stopPropagation();
+      if (opt.dataset.create) {
+        const name = this.search.value.trim();
+        const created = this.o.onCreate ? await this.o.onCreate(name) : name;
+        if (created) this._pick(created);
+        return;
+      }
+      this._pick(opt.dataset.v);
+    }));
+  }
+  _pick(v) {
+    if (this.o.multi) { this.sel.has(v) ? this.sel.delete(v) : this.sel.add(v); this._list(); }
+    else { this.sel = v; this.close(); }
+    this._label(); this._emit();
+  }
+  _emit() { if (this.o.onChange) this.o.onChange(this.value()); }
+  toggle() { this.el.classList.contains("open") ? this.close() : this.open(); }
+  open() {
+    if (_openDD && _openDD !== this) _openDD.close();
+    if (!this.panel) this._build();
+    this.el.classList.add("open");
+    _openDD = this;
+    // position the fixed panel against the button (flip up if low on space)
+    const r = this.btn.getBoundingClientRect(), below = window.innerHeight - r.bottom;
+    this.panel.style.left = Math.min(r.left, window.innerWidth - 332) + "px";
+    this.panel.style.minWidth = r.width + "px";
+    if (below < 340 && r.top > below) {
+      this.panel.style.top = "auto"; this.panel.style.bottom = (window.innerHeight - r.top + 5) + "px";
+    } else {
+      this.panel.style.bottom = "auto"; this.panel.style.top = (r.bottom + 5) + "px";
+    }
+    if (this.search) { this.search.value = ""; this._list(); this.search.focus(); }
+  }
+  close() { this.el.classList.remove("open"); if (_openDD === this) _openDD = null; }
+}
+let dashMonthDD, fMonthDD, bulkSubDD;
+
 // ---------- navigation ----------
 $$(".nav-item").forEach(btn => btn.addEventListener("click", () => {
   $$(".nav-item").forEach(b => b.classList.remove("active"));
@@ -51,25 +190,55 @@ async function loadMeta() {
     : `<div class="card-chip">No cards yet</div>`;
   // dashboard selectors
   fill("#dashCard", [["", "All cards"], ...META.cards.map(c => [c, "•••• " + c])]);
-  fill("#dashMonth", [["", "All cycles"], ...META.months.map(m => [m, monLabel(m)])]);
+  // multi-select billing-cycle pickers (dashboard + ledger)
+  const monthItems = META.months.map(m => ({ value: m, label: monLabel(m) }));
+  if (!dashMonthDD) {
+    dashMonthDD = new Dropdown("#dashMonth",
+      { multi: true, searchable: true, allLabel: "All cycles", onChange: loadDashboard });
+    fMonthDD = new Dropdown("#fMonth",
+      { multi: true, searchable: true, allLabel: "All cycles", onChange: loadLedger });
+  }
+  dashMonthDD.setOptions(monthItems);
+  fMonthDD.setOptions(monthItems);
   // ledger filters
-  fillOpts("#fMonth", "All statement cycles", META.months.map(m => [m, monLabel(m)]));
   fillOpts("#fCategory", "All categories", META.all_categories.map(c => [c, c]));
   fillOpts("#fBank", "All banks", META.banks.map(b => [b, b]));
   fillOpts("#fCard", "All cards", META.cards.map(c => [c, "•••• " + c]));
   const subs = META.all_subcategories || [];
   fillOpts("#fSubcategory", "All subcategories", subs.map(s => [s, s]));
-  $("#subList").innerHTML = subs.map(s => `<option value="${esc(s)}">`).join("");
+  if (!bulkSubDD) {
+    bulkSubDD = new Dropdown("#bulkSub", { searchable: true, creatable: true,
+      placeholder: "subcategory (optional)", emptyText: "Type to create", onCreate: createSubcategory });
+  }
+  bulkSubDD.setOptions(subItems(subs));
   populateCatSelects();
 }
 
-// shared ledger filter map (id ↔ query key) used by list, bulk, and export
-const FMAP = { search: "#fSearch", month: "#fMonth", category: "#fCategory",
+// subcategory option list with a leading "clear" entry for single comboboxes
+function subItems(subs) {
+  return [{ value: "", label: "— none —" }, ...subs.map(s => ({ value: s, label: s }))];
+}
+
+// persist a brand-new subcategory to the DB list, then refresh every picker
+async function createSubcategory(name) {
+  const r = await api("/api/subcategories",
+    { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }) });
+  META.all_subcategories = r.subcategories;
+  refreshSubcats();
+  return r.added;
+}
+
+// shared ledger filter map (id ↔ query key) used by list, bulk, and export.
+// Billing cycle (month) is a multi-select dropdown, handled separately.
+const FMAP = { search: "#fSearch", category: "#fCategory",
   subcategory: "#fSubcategory", bank: "#fBank", card_last4: "#fCard",
   direction: "#fDirection", section: "#fSection", is_emi: "#fEmi" };
 function currentFilters() {
   const f = {};
   for (const [k, sel] of Object.entries(FMAP)) if ($(sel) && $(sel).value) f[k] = $(sel).value;
+  const months = fMonthDD ? fMonthDD.value() : [];
+  if (months.length) f.month = months.join(",");
   return f;
 }
 
@@ -77,8 +246,8 @@ function currentFilters() {
 // dashboard's current card/cycle context.
 function drillToLedger(extra) {
   Object.values(FMAP).forEach(s => $(s).value = "");
+  fMonthDD.set(dashMonthDD ? dashMonthDD.value() : []);   // carry cycle context
   if ($("#dashCard").value) $("#fCard").value = $("#dashCard").value;
-  if ($("#dashMonth").value) $("#fMonth").value = $("#dashMonth").value;
   if (extra.category != null) $("#fCategory").value = extra.category;
   if (extra.section != null) $("#fSection").value = extra.section;
   $$(".nav-item").forEach(b => b.classList.toggle("active", b.dataset.view === "ledger"));
@@ -107,31 +276,37 @@ function monLabel(m) {
 
 // ---------- dashboard ----------
 $("#dashCard").addEventListener("change", loadDashboard);
-$("#dashMonth").addEventListener("change", loadDashboard);
 
 async function loadDashboard() {
-  const card = $("#dashCard").value, month = $("#dashMonth").value;
+  const card = $("#dashCard").value;
+  const selMonths = dashMonthDD ? dashMonthDD.value() : [];
   const qs = new URLSearchParams();
   if (card) qs.set("card", card);
-  if (month) qs.set("month", month);
+  if (selMonths.length) qs.set("month", selMonths.join(","));
   const stats = await api("/api/stats?" + qs);
 
   const cycles = stats.cycles;                       // statement-level, by cycle month
   const counts = stats.cycle_counts || {};
-  // focus cycle = explicitly selected, else the most recent one
-  const focusM = month || (cycles.length ? cycles[cycles.length - 1].month : null);
-  const cur = cycles.find(c => c.month === focusM);
-  const fIdx = cycles.findIndex(c => c.month === focusM);
-  const prev = fIdx > 0 ? cycles[fIdx - 1] : null;
-  const mom = (cur && prev && prev.total_due)
-    ? ((cur.total_due - prev.total_due) / prev.total_due * 100) : null;
-  const cnt = counts[focusM] || { n: 0 };
-  const opening = cur ? (cur.previous_balance || 0) : 0;
-  const spend = cur ? (cur.purchases || 0) : 0;
-  const pay = cur ? (cur.payments || 0) : 0;
-  const due = cur ? (cur.total_due || 0) : 0;
-  const refunds = cnt.refunds || 0;
-  const cycLbl = focusM ? monLabel(focusM) : "—";
+  // focus = the selected cycle(s); when none selected, the most recent one.
+  let focus;
+  if (selMonths.length) focus = cycles.filter(c => selMonths.includes(c.month));
+  else { const last = cycles[cycles.length - 1]; focus = last ? [last] : []; }
+  const sum = (arr, k) => arr.reduce((a, c) => a + (c[k] || 0), 0);
+  const opening = sum(focus, "previous_balance");
+  const spend = sum(focus, "purchases");
+  const pay = sum(focus, "payments");
+  const due = sum(focus, "total_due");
+  const cnt = { n: focus.reduce((a, c) => a + ((counts[c.month] || {}).n || 0), 0) };
+  const refunds = focus.reduce((a, c) => a + ((counts[c.month] || {}).refunds || 0), 0);
+  // month-over-month only makes sense for a single focused cycle
+  let mom = null, prevLbl = "";
+  if (focus.length === 1) {
+    const fi = cycles.findIndex(c => c.month === focus[0].month);
+    const prev = fi > 0 ? cycles[fi - 1] : null;
+    if (prev && prev.total_due) { mom = (focus[0].total_due - prev.total_due) / prev.total_due * 100; prevLbl = monLabel(prev.month); }
+  }
+  const cycLbl = focus.length === 1 ? monLabel(focus[0].month)
+    : focus.length > 1 ? `${focus.length} cycles` : "—";
 
   // KPIs follow the statement's own equation: opening + spend − payments = due
   const kpis = [
@@ -140,8 +315,8 @@ async function loadDashboard() {
     ["− Payments &amp; credits", inr(pay),
       refunds ? `incl. ${inr(refunds)} reversals` : "payments + credits", ""],
     [`= Total payable · ${cycLbl}`, inr(due),
-      mom == null ? "the bill generated this cycle" :
-        `${mom >= 0 ? "▲" : "▼"} ${Math.abs(mom).toFixed(1)}% vs ${prev ? monLabel(prev.month) : ""}`,
+      mom == null ? (focus.length > 1 ? "summed across selected cycles" : "the bill generated this cycle") :
+        `${mom >= 0 ? "▲" : "▼"} ${Math.abs(mom).toFixed(1)}% vs ${prevLbl}`,
       mom == null ? "" : (mom >= 0 ? "up" : "down")],
   ];
   $("#kpis").innerHTML = kpis.map(([l, v, s, cls], i) =>
@@ -150,7 +325,7 @@ async function loadDashboard() {
 
   // Reconciliation strip — makes the arithmetic explicit
   const recon = Math.abs(opening + spend - pay - due) <= 1;
-  $("#billEqn").innerHTML = cur
+  $("#billEqn").innerHTML = focus.length
     ? `<span class="eq-part">${inr(opening)} <i>opening</i></span><span class="eq-op">+</span>
        <span class="eq-part">${inr(spend)} <i>new spend</i></span><span class="eq-op">−</span>
        <span class="eq-part">${inr(pay)} <i>payments &amp; credits</i></span><span class="eq-op">=</span>
@@ -175,11 +350,14 @@ async function loadDashboard() {
           backgroundColor: "#22c55e", borderRadius: 5 },
       ],
     },
-    options: baseOpts({ stacked: false }),
+    options: baseOpts({ stacked: false, scroll: true }),
   });
+  sizeScroll("chMonthly", cmonths.length, 64);
 
   // Category doughnut — scope label reflects the ACTUAL data scope
-  const scopeLbl = month ? monLabel(month) : "All cycles";
+  const scopeLbl = selMonths.length
+    ? (selMonths.length === 1 ? monLabel(selMonths[0]) : `${selMonths.length} cycles`)
+    : "All cycles";
   const cat = stats.by_category.filter(c => c.total > 0);
   const catTotal = cat.reduce((s, c) => s + c.total, 0);
   $("#catScope").textContent = `${scopeLbl} · ${inr(catTotal)} total`;
@@ -196,6 +374,10 @@ async function loadDashboard() {
       cutout: "58%",
     },
   });
+
+  // Two-level Category → Subcategory donut
+  $("#catSubScope").textContent = `${scopeLbl} · ${inr(catTotal)} total`;
+  drawCatSub(stats.by_cat_sub || []);
 
   // Category trend stacked
   drawCatTrend(stats.cat_by_month);
@@ -256,12 +438,57 @@ function drawDue(byCard, cycles) {
     type: "bar",
     data: { labels: months.map(monLabel), datasets },
     options: {
-      ...baseOpts({ stacked: true }),
+      ...baseOpts({ stacked: true, scroll: true }),
       plugins: {
         legend: { labels: { boxWidth: 12, font: { size: 11 } } },
         tooltip: { callbacks: {
           label: c => `${c.dataset.label}: ${inr(c.raw)}`,
           footer: items => "Total payable: " + inr(totals[items[0].dataIndex]),
+        } },
+      },
+    },
+  });
+  sizeScroll("chDue", months.length);
+}
+
+// concentric doughnut: inner ring = category, outer ring = subcategory
+function drawCatSub(rows) {
+  const order = [], map = {};
+  rows.forEach(r => {
+    if (!map[r.category]) { map[r.category] = { cat: r.category, total: 0, subs: [] }; order.push(map[r.category]); }
+    map[r.category].total += r.total; map[r.category].subs.push(r);
+  });
+  order.sort((a, b) => b.total - a.total);
+  const inner = { data: [], colors: [], labels: [] };
+  const outer = { data: [], colors: [], labels: [] };
+  order.forEach((c, ci) => {
+    const base = PALETTE[ci % PALETTE.length];
+    inner.data.push(c.total); inner.colors.push(base); inner.labels.push(c.cat);
+    const subs = [...c.subs].sort((a, b) => b.total - a.total);
+    subs.forEach((s, si) => {
+      outer.data.push(s.total);
+      outer.colors.push(shade(base, si, subs.length));
+      outer.labels.push(`${c.cat} · ${s.subcategory}`);
+    });
+  });
+  if (!inner.data.length) {
+    if (charts.chCatSub) charts.chCatSub.destroy();
+    return;
+  }
+  draw("chCatSub", {
+    type: "doughnut",
+    data: { datasets: [
+      { data: inner.data, backgroundColor: inner.colors, _labels: inner.labels,
+        borderColor: "#161b24", borderWidth: 1, weight: 1 },
+      { data: outer.data, backgroundColor: outer.colors, _labels: outer.labels,
+        borderColor: "#161b24", borderWidth: 1, weight: 1.5 },
+    ] },
+    options: {
+      cutout: "38%",
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: {
+          label: ctx => `${(ctx.dataset._labels || [])[ctx.dataIndex]}: ${inr(ctx.raw)}`,
         } },
       },
     },
@@ -280,13 +507,14 @@ function drawCatTrend(rows) {
   draw("chCatTrend", {
     type: "bar",
     data: { labels: months.map(monLabel), datasets },
-    options: baseOpts({ stacked: true }),
+    options: baseOpts({ stacked: true, scroll: true }),
   });
+  sizeScroll("chCatTrend", months.length, 64);
 }
 
-function baseOpts({ stacked }) {
+function baseOpts({ stacked, scroll }) {
   return {
-    responsive: true, maintainAspectRatio: true,
+    responsive: true, maintainAspectRatio: !scroll,
     plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } },
       tooltip: { callbacks: { label: c => `${c.dataset.label}: ${inr(c.raw)}` } } },
     scales: {
@@ -300,11 +528,26 @@ function baseOpts({ stacked }) {
 let ledgerSort = { sort: "txn_date", order: "desc" };
 const debounce = (fn, ms = 250) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
 
-["#fMonth", "#fCategory", "#fSubcategory", "#fBank", "#fCard", "#fDirection",
+["#fCategory", "#fSubcategory", "#fBank", "#fCard", "#fDirection",
  "#fSection", "#fEmi"].forEach(s => $(s).addEventListener("change", loadLedger));
-$("#fSearch").addEventListener("input", debounce(loadLedger));
+
+// expandable search: click the magnifier to slide the field open
+const searchBox = $("#searchBox"), fSearchEl = $("#fSearch");
+$("#searchToggle").addEventListener("click", () => {
+  const open = searchBox.classList.toggle("open");
+  if (open) fSearchEl.focus();
+  else if (fSearchEl.value) { fSearchEl.value = ""; searchBox.classList.remove("active"); loadLedger(); }
+});
+fSearchEl.addEventListener("input", debounce(() => {
+  searchBox.classList.toggle("active", !!fSearchEl.value);
+  loadLedger();
+}));
+fSearchEl.addEventListener("blur", () => { if (!fSearchEl.value) searchBox.classList.remove("open"); });
+
 $("#fClear").addEventListener("click", () => {
   Object.values(FMAP).forEach(s => $(s).value = "");
+  fMonthDD.set([]);
+  searchBox.classList.remove("open", "active");
   loadLedger();
 });
 $$("th.sortable").forEach(th => th.addEventListener("click", () => {
@@ -344,8 +587,8 @@ async function loadLedger() {
         <div class="desc-sub">${esc(t.city ? t.city + " · " : "")}${esc(t.cardholder || "")}${t.ref_no ? " · ref " + esc(String(t.ref_no).slice(0, 14)) : ""}</div></td>
       <td>${t.bank}<div class="desc-sub">•••• ${t.card_last4}</div></td>
       <td><div class="cat-cell">${sel}
-        <input class="sub-input" data-id="${t.id}" list="subList"
-               value="${esc(t.subcategory || "")}" placeholder="+ subcategory" /></div></td>
+        <div class="dd dd-inline dd-single sub-dd" data-id="${t.id}"
+             data-sub="${esc(t.subcategory || "")}"></div></div></td>
       <td><input class="note-input" data-id="${t.id}" value="${esc(t.note || "")}"
             placeholder="add note / tag…" /></td>
       <td class="num">${fx}</td>
@@ -373,20 +616,19 @@ async function loadLedger() {
     inp.addEventListener("blur", save);
     inp.addEventListener("keydown", save);
   });
-  $$(".sub-input", body).forEach(inp => {
-    const save = async e => {
-      if (e.type === "keydown" && e.key !== "Enter") return;
-      if (e.target.dataset.saved === e.target.value) return;
-      await api(`/api/transactions/${e.target.dataset.id}/subcategory`,
-        { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ subcategory: e.target.value }) });
-      e.target.dataset.saved = e.target.value;
-      toast("Subcategory saved");
-      if (e.type === "keydown") e.target.blur(); else refreshSubList();
-    };
-    inp.dataset.saved = inp.value;
-    inp.addEventListener("blur", save);
-    inp.addEventListener("keydown", save);
+  // searchable, DB-backed subcategory combobox per row (replaces datalist)
+  $$(".sub-dd", body).forEach(el => {
+    const id = el.dataset.id;
+    const dd = new Dropdown(el, { searchable: true, creatable: true,
+      placeholder: "+ subcategory", emptyText: "Type to create", onCreate: createSubcategory,
+      onChange: async val => {
+        await api(`/api/transactions/${id}/subcategory`,
+          { method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ subcategory: val }) });
+        toast(val ? "Subcategory saved" : "Subcategory cleared");
+      } });
+    dd.setOptions(subItems(META.all_subcategories));
+    dd.set(el.dataset.sub);
   });
   $$(".clickpill", body).forEach(p => p.addEventListener("click", e => {
     e.stopPropagation();
@@ -396,13 +638,12 @@ async function loadLedger() {
   }));
 }
 
-// keep the subcategory datalist fresh after a new value is typed
-async function refreshSubList() {
-  const d = await api("/api/filters");
-  META.all_subcategories = d.all_subcategories || [];
-  $("#subList").innerHTML = META.all_subcategories.map(s => `<option value="${esc(s)}">`).join("");
+// refresh every subcategory picker after the DB list changes
+function refreshSubcats() {
+  const subs = META.all_subcategories || [];
+  if (bulkSubDD) bulkSubDD.setOptions(subItems(subs));
   const cur = $("#fSubcategory").value;
-  fillOpts("#fSubcategory", "All subcategories", META.all_subcategories.map(s => [s, s]));
+  fillOpts("#fSubcategory", "All subcategories", subs.map(s => [s, s]));
   $("#fSubcategory").value = cur;
 }
 
@@ -413,8 +654,8 @@ function populateCatSelects() {
 }
 $("#bulkApply").addEventListener("click", async () => {
   const cat = $("#bulkCat").value;
-  const sub = $("#bulkSub").value.trim();
-  if (!cat && !sub) { toast("Pick a category or type a subcategory"); return; }
+  const sub = (bulkSubDD ? bulkSubDD.value() : "").trim();
+  if (!cat && !sub) { toast("Pick a category or a subcategory"); return; }
   const n = +$("#bulkCount").textContent;
   const what = [cat && `category “${cat}”`, sub && `subcategory “${sub}”`]
     .filter(Boolean).join(" + ");
@@ -426,8 +667,7 @@ $("#bulkApply").addEventListener("click", async () => {
     { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload) });
   toast(`Updated ${r.updated} transaction(s)`);
-  $("#bulkSub").value = "";
-  if (sub) await refreshSubList();
+  if (bulkSubDD) bulkSubDD.set("");
   await loadLedger();
 });
 $("#newCat").addEventListener("click", async () => {

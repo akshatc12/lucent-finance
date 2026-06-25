@@ -122,6 +122,20 @@ def api_add_category():
     return jsonify({"categories": db.list_categories(), "added": name})
 
 
+@app.get("/api/subcategories")
+def api_subcategories():
+    return jsonify({"subcategories": db.list_subcategories()})
+
+
+@app.post("/api/subcategories")
+def api_add_subcategory():
+    body = request.get_json(force=True, silent=True) or {}
+    name = db.add_subcategory(body.get("name"))
+    if not name:
+        return jsonify({"error": "name required"}), 400
+    return jsonify({"subcategories": db.list_subcategories(), "added": name})
+
+
 @app.get("/api/statements")
 def api_statements():
     return jsonify({"statements": db.list_statements()})

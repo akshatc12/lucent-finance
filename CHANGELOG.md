@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-06-26
+### Added
+- **Multi-select billing cycles** — the dashboard and ledger month pickers are
+  now multi-select dropdowns (searchable, with select-all/clear). KPIs and the
+  bill strip sum across the selected cycles; snapshot panels scope to them.
+- **Category → Subcategory donut** — a two-ring chart on the dashboard: inner
+  ring is the category, outer ring its subcategories (shaded by parent), with an
+  explicit “(untagged)” slice so the rings reconcile. Great for seeing, e.g.,
+  how an all-Travel bucket splits into Flights / Hotel / Shopping.
+- **Subcategories are a real catalogue** — promoted from on-the-fly browser
+  autocomplete to a persisted `subcategories` table (seeded from existing tags),
+  surfaced everywhere as a **searchable dropdown** with inline “+ Create”.
+  New `GET/POST /api/subcategories`.
+- **Horizontally scrollable cycle charts** — the “Net Amount Due”, “New Spend vs
+  Credits” and “Category trend” bars widen and scroll as billing cycles
+  accumulate, so stacks stay readable instead of being squeezed.
+- `LUCENT_DB` environment override for the database path (keeps tests/previews
+  off the real ledger).
+### Changed
+- **Axis parsing reworked for the full e-mailed statement** ("NEO CREDIT CARD
+  STATEMENT" / "My Zone Card Statement"). These carry the real **Statement
+  Period** and **Statement Generation Date**, so billing cycles are now exact
+  (previously approximated from the cut-down Axis-app export). Foreign-currency
+  amounts (e.g. `( THB 846.00 )`) and the bank's merchant-category column are
+  parsed too — the category column is split out by position so it never leaks
+  into the description. The Axis-app export remains supported as a fallback.
+- **Ledger search is now a sleek expandable button** and the filter bar is a
+  single row (horizontal-scroll fallback when cramped) instead of wrapping.
+
 ## [0.7.1] — 2026-06-25
 ### Fixed
 - Import portal now lists **HDFC, ICICI & Axis** as supported (was HDFC & ICICI).
@@ -103,7 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ledger with inline re-tagging, and a reconciliation engine.
 - Import portal with statement-password support; all processing stays local.
 
-[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.8.0
 [0.7.1]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.1
 [0.7.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.0
 [0.6.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.6.0

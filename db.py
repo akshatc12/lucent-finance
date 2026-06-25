@@ -12,8 +12,11 @@ import sqlite3
 import hashlib
 import datetime as _dt
 
-DB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
-DB_PATH = os.path.join(DB_DIR, "ledger.db")
+# DB location: defaults to ./data/ledger.db; override with LUCENT_DB (handy for
+# tests / previews so they never touch the real ledger).
+DB_PATH = os.environ.get("LUCENT_DB") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "ledger.db")
+DB_DIR = os.path.dirname(DB_PATH)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS statements (
@@ -98,6 +101,15 @@ def _migrate(c):
     for r in c.execute("SELECT DISTINCT category FROM transactions WHERE category IS NOT NULL"):
         c.execute("INSERT OR IGNORE INTO categories (name, sort, custom) VALUES (?,999,1)",
                   (r["category"],))
+
+    # Subcategory catalogue: a proper persisted list (was previously only the
+    # distinct values typed on transactions, surfaced as browser autocomplete).
+    c.execute("""CREATE TABLE IF NOT EXISTS subcategories (
+        name TEXT PRIMARY KEY, sort INTEGER DEFAULT 999, created_at TEXT)""")
+    for r in c.execute("SELECT DISTINCT subcategory FROM transactions "
+                       "WHERE subcategory IS NOT NULL AND subcategory<>''"):
+        c.execute("INSERT OR IGNORE INTO subcategories (name, created_at) VALUES (?,?)",
+                  (r["subcategory"], _now()))
 
 
 def _conn():
@@ -207,6 +219,17 @@ def _occ_in_db(c, h, occ):
 # Queries
 # ---------------------------------------------------------------------------
 
+def _months_list(month):
+    """Accept a single 'YYYY-MM', a comma-separated list, or an actual list."""
+    if not month:
+        return []
+    if isinstance(month, (list, tuple)):
+        vals = month
+    else:
+        vals = str(month).split(",")
+    return [m.strip() for m in vals if m and m.strip()]
+
+
 def _build_where(filters):
     """Shared filter clause for listing, bulk actions, and export."""
     clause = " WHERE 1=1"
@@ -225,9 +248,10 @@ def _build_where(filters):
         clause += " AND is_emi=1"
     elif str(filters.get("is_emi", "")).lower() in ("0", "false", "no"):
         clause += " AND is_emi=0"
-    if filters.get("month"):  # YYYY-MM billing cycle
-        clause += " AND cycle_month=?"
-        args.append(filters["month"])
+    months = _months_list(filters.get("month"))  # one or many billing cycles
+    if months:
+        clause += f" AND cycle_month IN ({','.join('?' * len(months))})"
+        args += months
     if filters.get("date_from"):
         clause += " AND txn_date>=?"
         args.append(filters["date_from"])
@@ -260,10 +284,28 @@ def update_category(txn_id, category):
         return c.total_changes
 
 
-def update_subcategory(txn_id, subcategory):
+def _ensure_subcategory(c, name):
+    name = (name or "").strip()
+    if name:
+        c.execute("INSERT OR IGNORE INTO subcategories (name, created_at) VALUES (?,?)",
+                  (name, _now()))
+
+
+def add_subcategory(name):
+    name = (name or "").strip()
+    if not name:
+        return None
     with _conn() as c:
-        c.execute("UPDATE transactions SET subcategory=? WHERE id=?",
-                  ((subcategory or "").strip() or None, txn_id))
+        _ensure_subcategory(c, name)
+    return name
+
+
+def update_subcategory(txn_id, subcategory):
+    sub = (subcategory or "").strip() or None
+    with _conn() as c:
+        if sub:
+            _ensure_subcategory(c, sub)
+        c.execute("UPDATE transactions SET subcategory=? WHERE id=?", (sub, txn_id))
         return c.total_changes
 
 
@@ -283,6 +325,8 @@ def bulk_update(filters, category=None, subcategory=None):
     with _conn() as c:
         if category:
             _ensure_category(c, category)
+        if subcategory:
+            _ensure_subcategory(c, subcategory.strip())
         c.execute(f"UPDATE transactions SET {', '.join(sets)}" + clause, vals + args)
         return c.total_changes
 
@@ -295,9 +339,8 @@ def update_note(txn_id, note):
 
 def list_subcategories():
     with _conn() as c:
-        return [r["subcategory"] for r in c.execute(
-            "SELECT DISTINCT subcategory FROM transactions "
-            "WHERE subcategory IS NOT NULL AND subcategory<>'' ORDER BY subcategory")]
+        return [r["name"] for r in c.execute(
+            "SELECT name FROM subcategories ORDER BY sort, name")]
 
 
 def list_categories():
@@ -336,8 +379,7 @@ def distinct_values():
         return {
             "categories": col("category"),
             "subcategories": [r[0] for r in c.execute(
-                "SELECT DISTINCT subcategory FROM transactions "
-                "WHERE subcategory IS NOT NULL AND subcategory<>'' ORDER BY subcategory")],
+                "SELECT name FROM subcategories ORDER BY sort, name")],
             "banks": col("bank"),
             "cards": col("card_last4"),
             "months": [r[0] for r in c.execute(
@@ -349,10 +391,12 @@ def stats_overview(card=None, month=None):
     """Aggregations powering the dashboard, organised by billing cycle.
 
     `card`  — restrict everything to one card (last4) when given.
-    `month` — billing-cycle month (YYYY-MM). Snapshot panels (category, merchant,
-              domestic/intl, totals/KPIs) scope to this cycle; the time-series
+    `month` — one or more billing-cycle months (YYYY-MM; a list or a comma-
+              separated string). Snapshot panels (category, merchant, domestic/
+              intl, totals/KPIs) scope to the selected cycle(s); the time-series
               charts always show the full timeline so trends stay visible.
     """
+    months = _months_list(month)
     with _conn() as c:
         def rows(sql, args=()):
             return [dict(r) for r in c.execute(sql, args).fetchall()]
@@ -394,8 +438,9 @@ def stats_overview(card=None, month=None):
             cl, a = ["1=1"], []
             if card:
                 cl.append("card_last4=?"); a.append(card)
-            if month:
-                cl.append("cycle_month=?"); a.append(month)
+            if months:
+                cl.append(f"cycle_month IN ({','.join('?' * len(months))})")
+                a += months
             if extra:
                 cl.append(extra)
             return " WHERE " + " AND ".join(cl), a
@@ -403,6 +448,15 @@ def stats_overview(card=None, month=None):
         w, a = where("direction='debit'")
         by_category = rows(f"""SELECT category, SUM(amount) total, COUNT(*) n
             FROM transactions{w} GROUP BY category ORDER BY total DESC""", a)
+
+        # category -> subcategory breakdown for the two-level donut. Untagged
+        # spend in a category is surfaced as its own slice so the rings reconcile.
+        w, a = where("direction='debit'")
+        by_cat_sub = rows(f"""SELECT category,
+                   COALESCE(NULLIF(TRIM(subcategory),''),'(untagged)') subcategory,
+                   SUM(amount) total, COUNT(*) n
+            FROM transactions{w} GROUP BY category, subcategory
+            ORDER BY category, total DESC""", a)
 
         w, a = where("direction='debit' AND merchant IS NOT NULL")
         by_merchant = rows(f"""SELECT merchant, SUM(amount) total, COUNT(*) n
@@ -433,9 +487,11 @@ def stats_overview(card=None, month=None):
         return {
             "cycles": cycles, "cycles_by_card": cycles_by_card,
             "cycle_counts": cycle_counts,
-            "by_category": by_category, "by_card": by_card,
+            "by_category": by_category, "by_cat_sub": by_cat_sub,
+            "by_card": by_card,
             "by_merchant": by_merchant, "cat_by_month": cat_by_month,
-            "dom_intl": dom_intl, "selected_month": month, "selected_card": card,
+            "dom_intl": dom_intl, "selected_months": months,
+            "selected_card": card,
             "totals": {"n": totals["n"] or 0, "spend": totals["spend"] or 0,
                        "credit": totals["credit"] or 0},
         }
