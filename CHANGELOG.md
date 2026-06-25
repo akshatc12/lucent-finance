@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-06-25
+### Fixed
+- Import portal now lists **HDFC, ICICI & Axis** as supported (was HDFC & ICICI).
+- Encrypted PDFs that fail to decrypt no longer surface a **blank error**.
+  pdfplumber raises an empty-message `PdfminerException` on a wrong/missing
+  password; the portal now shows a clear "looks encrypted — check the password"
+  message and a tip to import differently-passworded statements one at a time.
+
 ## [0.7.0] — 2026-06-25
 ### Added
 - **Axis Bank statement parsing** — supports the Neo and MY Zone consumer cards
@@ -95,7 +103,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ledger with inline re-tagging, and a reconciliation engine.
 - Import portal with statement-password support; all processing stays local.
 
-[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.1
 [0.7.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.0
 [0.6.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.6.0
 [0.5.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.5.0
