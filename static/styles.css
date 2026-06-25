@@ -110,9 +110,66 @@ nav{display:flex;flex-direction:column;gap:4px}
 .bar-fill{height:100%;background:linear-gradient(90deg,#5b8cff,#22c55e);border-radius:6px}
 .bar-amt{font-variant-numeric:tabular-nums;font-size:12px;color:var(--muted)}
 
-/* Filters */
-.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px}
-.filters .input{flex:1;min-width:240px}
+/* Filters — single row, horizontal-scroll fallback when cramped */
+.filters{display:flex;gap:9px;align-items:center;margin-bottom:12px;
+  flex-wrap:nowrap;overflow-x:auto;overflow-y:visible;padding-bottom:3px;scrollbar-width:thin}
+.filters>*{flex:0 0 auto}
+.filters .select{max-width:170px}
+
+/* Expandable search */
+.search-box{display:flex;align-items:center}
+.search-toggle{width:38px;height:38px;flex:0 0 auto;border:1px solid var(--line);
+  background:var(--panel-2);color:var(--text);border-radius:9px;cursor:pointer;font-size:14px;
+  display:flex;align-items:center;justify-content:center}
+.search-toggle:hover{border-color:var(--accent)}
+.search-box.active .search-toggle{border-color:var(--accent);color:#bcb0ff}
+.search-input{width:0;opacity:0;padding:0;border:1px solid transparent;background:var(--panel-2);
+  color:var(--text);border-radius:9px;font:inherit;
+  transition:width .22s ease,opacity .16s,margin .22s,padding .22s}
+.search-box.open .search-input{width:clamp(180px,22vw,300px);opacity:1;margin-left:8px;padding:9px 11px;border-color:var(--line)}
+.search-box.open .search-input:focus{border-color:var(--accent);outline:none}
+
+/* Reusable dropdown (multi-select months + searchable subcategory combobox) */
+.dd{position:relative;display:inline-flex}
+.dd-btn{display:flex;align-items:center;gap:8px;min-width:140px;max-width:230px;
+  background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  padding:9px 11px;border-radius:9px;cursor:pointer;font:inherit;white-space:nowrap}
+.dd-btn:hover{border-color:var(--accent)}
+.dd.open .dd-btn{border-color:var(--accent)}
+.dd-btn .dd-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-btn .dd-caret{margin-left:auto;color:var(--muted);font-size:10px}
+.dd-btn.placeholder .dd-label{color:#7c8696}
+/* fixed so it escapes the scrollable filter bar / ledger table */
+.dd-panel{position:fixed;z-index:80;min-width:210px;max-width:320px;
+  background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:8px;display:none;max-height:330px;overflow:auto}
+.dd.open .dd-panel{display:block}
+.dd-search{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+  border-radius:8px;padding:7px 9px;font:inherit;margin-bottom:6px;outline:none}
+.dd-search:focus{border-color:var(--accent)}
+.dd-opt{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:7px;cursor:pointer;font-size:13px}
+.dd-opt:hover,.dd-opt.active{background:var(--panel-2)}
+.dd-opt.sel{color:#bcb0ff}
+.dd-check{width:15px;height:15px;border:1px solid var(--line);border-radius:4px;flex:0 0 auto;
+  display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;line-height:1}
+.dd-opt.sel .dd-check{background:var(--accent);border-color:var(--accent)}
+.dd-single .dd-check{display:none}
+.dd-create{color:#7dd3fc}
+.dd-empty{color:var(--muted);font-size:12px;padding:7px 8px}
+.dd-actions{display:flex;justify-content:space-between;gap:8px;margin-top:6px;
+  border-top:1px solid var(--line);padding-top:7px}
+.dd-mini{background:none;border:0;color:var(--muted);font-size:12px;cursor:pointer;padding:4px 6px}
+.dd-mini:hover{color:var(--text)}
+/* compact inline dropdown used inside ledger rows */
+.dd-inline .dd-btn{min-width:150px;max-width:170px;padding:4px 8px;font-size:11px;border-color:transparent}
+.dd-inline .dd-btn:hover{border-color:var(--line)}
+.dd-sub .dd-btn{min-width:175px}
+
+/* Horizontally scrollable bar charts (grow with billing cycles) */
+.chart-scroll{overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+.chart-inner{position:relative;height:250px;min-width:100%}
+.chart-inner.sm{height:210px}
+.chart-inner canvas{position:absolute;inset:0;height:100%!important;width:100%!important}
 
 /* Bulk action bar */
 .bulkbar{display:flex;justify-content:space-between;align-items:center;gap:12px;

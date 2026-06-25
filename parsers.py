@@ -60,6 +60,12 @@ def _iso_dmy(d, m, y):
         return None
 
 
+def _iso_ddmmyyyy(s):
+    """'10/06/2026' -> '2026-06-10'."""
+    m = re.match(r"\s*(\d{2})/(\d{2})/(\d{4})\s*$", s or "")
+    return _iso_dmy(m.group(1), m.group(2), m.group(3)) if m else None
+
+
 def _iso_from_text_date(text):
     """Parse '07 Jul, 2026' / 'July 3, 2026' / 'May 16, 2026' -> ISO date."""
     if not text:
@@ -506,23 +512,43 @@ def _parse_icici_body(date_s, serno, buf):
 # Axis (Neo / MY Zone and other consumer cards)
 # ---------------------------------------------------------------------------
 #
-# Axis statements are laid out as a bordered table with four columns:
-#   date | transaction details | amount (INR) | debit/credit
-# pdfplumber's flat text stream is unreliable here because a long merchant name
-# wraps to several physical lines that straddle the (vertically-centred) date /
-# amount / direction row — e.g. "4384 BOOTS-SIAM PREMIUM" sits *above* the row
-# and "O,SAMUTPRAKAN" *below* it. So we rebuild each row from word coordinates:
-# every transaction has exactly one date triple, one amount and one Debit/Credit
-# token sharing a y-position; the description is whichever detail-column words
-# are vertically nearest that anchor row.
+# There are two Axis layouts in the wild:
+#
+#  1. The *full* statement e-mailed by the bank ("NEO CREDIT CARD STATEMENT" /
+#     "My Zone Card Statement"). This is the authoritative one — it carries the
+#     real Statement Period, Statement Generation Date, foreign currency amounts
+#     and the bank's own merchant category. Columns are:
+#       date | transaction details | merchant category | amount | Dr/Cr
+#     Parsed by `_parse_axis_full` from word coordinates so the merchant-category
+#     column never leaks into the description.
+#
+#  2. The cut-down summary exported from the Axis mobile app ("Axis Bank Neo Card
+#     Monthly Statement"). It lacks the statement date/period, so billing cycles
+#     were approximate. Kept as `_parse_axis_app` for backwards compatibility;
+#     here long merchant names wrap above/below the (vertically-centred) date row
+#     so rows are rebuilt by vertical nearest-anchor.
+#
+# `parse_axis` sniffs which one it is.
 
-# Column x0 bands (points). The template is stable across Axis card variants.
+# -- app-format column x0 bands (points) --
 _AX_DATE_MAXX = 130      # date column ends here
 _AX_DESC_MINX = 130      # transaction-details column
 _AX_DESC_MAXX = 345
 _AX_AMT_MINX = 345       # amount column (₹ + number)
 _AX_AMT_MAXX = 448
 _AX_DIR_MINX = 448       # Debit / Credit column
+
+# -- full-statement column x0 bands (points) --
+_AXF_DATE_MAXX = 90      # date token sits at the far left
+_AXF_DESC_MINX = 90      # transaction details (incl. foreign-amount bracket)
+_AXF_DESC_MAXX = 355
+_AXF_AMT_MINX = 505      # INR amount column
+_AXF_AMT_MAXX = 568
+_AXF_DIR_MINX = 568      # Dr / Cr column
+
+_AXF_DATE = re.compile(r"^(\d{2})/(\d{2})/(\d{4})$")
+# "( THB 1,348.00 )" foreign-amount bracket inside the details column
+_AXF_FX = re.compile(r"\(\s*([A-Z]{3})\s+([\d,]+\.\d{2})\s*\)")
 
 _AX_DATE = re.compile(r"^(\d{1,2})\s+([A-Za-z]{3})\s+'(\d{2})$")
 _AX_NUM = re.compile(r"^₹?\s*([\d,]+\.\d{2})$")
@@ -560,6 +586,103 @@ def _ax_lines(words):
 
 
 def parse_axis(pages, word_pages, file_name=""):
+    """Dispatch to the full e-mailed statement parser or the app-export one."""
+    text = "\n".join(pages)
+    if re.search(r"Statement Generation Date|Account Summary|"
+                 r"\*+\s*End of Statement", text, re.I):
+        return _parse_axis_full(pages, word_pages, file_name=file_name)
+    return _parse_axis_app(pages, word_pages, file_name=file_name)
+
+
+def _axis_label(text):
+    """Card label from the statement title line, e.g. 'Axis Neo Credit Card'."""
+    low = text.lower()
+    if "neo" in low[:200]:
+        return "Axis Neo Credit Card"
+    if "my zone" in low[:200] or "myzone" in low[:200]:
+        return "Axis MY Zone Credit Card"
+    # generic: first non-empty line, stripped of trailing "card statement"
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    variant = re.sub(r"\b(credit\s+)?card\s+statement\b.*$", "", first, flags=re.I).strip()
+    return f"Axis {variant} Credit Card" if variant else "Axis Credit Card"
+
+
+def _parse_axis_full(pages, word_pages, file_name=""):
+    text = "\n".join(pages)
+    summary = {}
+    label = _axis_label(text)
+
+    last4 = None
+    mc = re.search(r"(\d{6}\*{4,}\d{4})", text)
+    if mc:
+        last4 = re.sub(r"[^\d]", "", mc.group(1))[-4:]
+
+    # Payment summary values row:
+    #   <total> Dr <min> Dr <period start> - <period end> <due date> <gen date>
+    period_start = period_end = due_date = stmt_date = None
+    mp = re.search(
+        r"Total Payment Due\s+Minimum Payment Due\s+Statement Period\s+"
+        r"Payment Due Date\s+Statement Generation Date\s*\n\s*"
+        r"([\d,]+\.\d{2})\s+Dr\s+([\d,]+\.\d{2})\s+Dr\s+"
+        r"(\d{2}/\d{2}/\d{4})\s*-\s*(\d{2}/\d{2}/\d{4})\s+"
+        r"(\d{2}/\d{2}/\d{4})\s+(\d{2}/\d{2}/\d{4})", text)
+    if mp:
+        summary["total_due"] = _to_float(mp.group(1))
+        summary["min_due"] = _to_float(mp.group(2))
+        period_start = _iso_ddmmyyyy(mp.group(3))
+        period_end = _iso_ddmmyyyy(mp.group(4))
+        due_date = _iso_ddmmyyyy(mp.group(5))
+        stmt_date = _iso_ddmmyyyy(mp.group(6))   # statement generation date
+    summary.setdefault("total_due", None)
+    summary.setdefault("min_due", None)
+
+    # Equation row: prev Dr  payments  credits  purchase  cash  other  total Dr
+    me = re.search(r"(?m)^([\d,]+\.\d{2})\s+Dr\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})"
+                   r"\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+([\d,]+\.\d{2})\s+"
+                   r"([\d,]+\.\d{2})\s+Dr", text)
+    if me:
+        summary["previous_balance"] = _to_float(me.group(1))
+    summary.setdefault("previous_balance", None)
+
+    # ---- transactions: one clean row per line, split by column x-range ----
+    txns = []
+    for words in word_pages:
+        for _top, lws in _ax_lines(words):
+            date_txt = next((w["text"] for w in lws
+                             if w["x0"] < _AXF_DATE_MAXX
+                             and _AXF_DATE.match(w["text"])), None)
+            if not date_txt:
+                continue
+            amt = next((_to_float(w["text"]) for w in lws
+                        if _AXF_AMT_MINX <= w["x0"] < _AXF_AMT_MAXX
+                        and _DEC.match(w["text"])), None)
+            direction = next((w["text"] for w in lws
+                              if w["x0"] >= _AXF_DIR_MINX
+                              and w["text"] in ("Dr", "Cr")), None)
+            if amt is None or not direction:
+                continue
+            dws = sorted((w for w in lws if _AXF_DESC_MINX <= w["x0"] < _AXF_DESC_MAXX),
+                         key=lambda w: w["x0"])
+            desc = re.sub(r"\s{2,}", " ", " ".join(w["text"] for w in dws)).strip()
+            txns.append(_build_axis_txn(_iso_ddmmyyyy(date_txt), desc, amt,
+                                        direction == "Cr", full=True))
+
+    summary["purchases"] = round(sum(t["amount"] for t in txns
+                                     if t["direction"] == "debit"), 2)
+    summary["payments_credits"] = round(sum(t["amount"] for t in txns
+                                            if t["direction"] == "credit"), 2)
+    summary.setdefault("cash_advances", 0.0)
+    summary.setdefault("finance_charges", None)
+
+    return {
+        "bank": "AXIS", "card_last4": last4 or "----", "card_label": label,
+        "statement_date": stmt_date, "period_start": period_start,
+        "period_end": period_end, "due_date": due_date,
+        "summary": summary, "transactions": txns, "file_name": file_name,
+    }
+
+
+def _parse_axis_app(pages, word_pages, file_name=""):
     text = "\n".join(pages)
     summary = {}
 
@@ -672,7 +795,14 @@ def parse_axis(pages, word_pages, file_name=""):
     }
 
 
-def _build_axis_txn(txn_date, desc, amount, is_credit):
+def _build_axis_txn(txn_date, desc, amount, is_credit, full=False):
+    foreign_amount = foreign_currency = None
+    # full statements print the original currency as "( THB 846.00 )"
+    mf = _AXF_FX.search(desc)
+    if mf:
+        foreign_currency = mf.group(1)
+        foreign_amount = _to_float(mf.group(2))
+        desc = (desc[:mf.start()] + " " + desc[mf.end():]).strip()
     ref = None
     mref = re.search(r"#(\S+)", desc)
     if mref:
@@ -681,8 +811,11 @@ def _build_axis_txn(txn_date, desc, amount, is_credit):
     desc = re.sub(r"\s{2,}", " ", desc).strip(" ,")
     merchant, city = _axis_merchant_city(desc)
     up = desc.upper()
+    # International when a foreign amount is present, the FX fee row, or (app
+    # format, which has no foreign amounts) a known foreign city.
     section = "International" if (
-        (city and city.upper() in _AX_FOREIGN) or "FOREIGN CURRENCY" in up
+        foreign_amount is not None or "FOREIGN CURRENCY" in up
+        or (city and city.upper() in _AX_FOREIGN)
     ) else "Domestic"
     is_emi = "emi" in desc.lower()
 
@@ -691,7 +824,8 @@ def _build_axis_txn(txn_date, desc, amount, is_credit):
         "txn_date": txn_date, "txn_time": None,
         "description": desc or "(unknown)", "merchant": merchant, "city": city,
         "amount": amount, "direction": "credit" if is_credit else "debit",
-        "currency": "INR", "foreign_amount": None, "foreign_currency": None,
+        "currency": "INR", "foreign_amount": foreign_amount,
+        "foreign_currency": foreign_currency,
         "section": section, "cardholder": None, "reward_points": None,
         "ref_no": ref, "is_emi": is_emi,
         "category": categorise(desc, is_credit), "bank": "AXIS",

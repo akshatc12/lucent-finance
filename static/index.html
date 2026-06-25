@@ -44,7 +44,7 @@
         <h1>Dashboard</h1>
         <div class="head-actions">
           <select id="dashCard" class="select" title="Filter by card"></select>
-          <select id="dashMonth" class="select" title="Focus a billing cycle"></select>
+          <div id="dashMonth" class="dd" title="Focus one or more billing cycles"></div>
         </div>
       </header>
 
@@ -56,7 +56,7 @@
           <h3>Net Amount Due by Billing Cycle</h3>
           <span class="muted">Total payable per statement — stacked by card</span>
         </div>
-        <canvas id="chDue" height="92"></canvas>
+        <div class="chart-scroll"><div class="chart-inner"><canvas id="chDue"></canvas></div></div>
       </div>
 
       <div class="grid-2">
@@ -65,20 +65,25 @@
           <canvas id="chCategory" height="150"></canvas>
         </div>
         <div class="card">
-          <div class="card-head"><h3>New Spend vs Credits by Cycle</h3></div>
-          <canvas id="chMonthly" height="150"></canvas>
+          <div class="card-head"><h3>Category → Subcategory</h3><span id="catSubScope" class="scope-tag"></span></div>
+          <canvas id="chCatSub" height="150"></canvas>
         </div>
       </div>
 
       <div class="grid-2">
         <div class="card">
-          <div class="card-head"><h3>Category trend (month over month)</h3></div>
-          <canvas id="chCatTrend" height="150"></canvas>
+          <div class="card-head"><h3>New Spend vs Credits by Cycle</h3></div>
+          <div class="chart-scroll"><div class="chart-inner sm"><canvas id="chMonthly"></canvas></div></div>
         </div>
         <div class="card">
           <div class="card-head"><h3>Spend by Card</h3></div>
           <canvas id="chCard" height="150"></canvas>
         </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>Category trend (month over month)</h3></div>
+        <div class="chart-scroll"><div class="chart-inner sm"><canvas id="chCatTrend"></canvas></div></div>
       </div>
 
       <div class="grid-2">
@@ -103,8 +108,12 @@
       </header>
 
       <div class="filters">
-        <input id="fSearch" class="input" type="search" placeholder="Search description / merchant / category / tag…" />
-        <select id="fMonth" class="select"><option value="">All months</option></select>
+        <div id="searchBox" class="search-box">
+          <button id="searchToggle" class="search-toggle" title="Search" aria-label="Search">🔍</button>
+          <input id="fSearch" class="search-input" type="search"
+                 placeholder="Search description / merchant / category / tag…" />
+        </div>
+        <div id="fMonth" class="dd"></div>
         <select id="fCategory" class="select"><option value="">All categories</option></select>
         <select id="fSubcategory" class="select"><option value="">All subcategories</option></select>
         <select id="fBank" class="select"><option value="">All banks</option></select>
@@ -131,13 +140,12 @@
         <div class="bulk-left">
           <span class="muted">Bulk-tag <b id="bulkCount">0</b>:</span>
           <select id="bulkCat" class="select"><option value="">— category —</option></select>
-          <input id="bulkSub" class="input bulk-sub" list="subList" placeholder="subcategory (optional)" />
+          <div id="bulkSub" class="dd dd-sub"></div>
           <button id="bulkApply" class="btn primary" disabled>Apply to all results</button>
           <button id="newCat" class="btn ghost">＋ New category</button>
         </div>
         <button id="exportBtn" class="btn ghost">⬇ Export to Excel</button>
       </div>
-      <datalist id="subList"></datalist>
 
       <div class="table-wrap">
         <table class="ledger">

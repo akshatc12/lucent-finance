@@ -1,6 +1,6 @@
 # Lucent — Session Handoff
 
-_Last updated: 2026-06-25 · current release: **v0.7.0**_
+_Last updated: 2026-06-26 · current release: **v0.8.0**_
 
 A working note for picking this project up in a fresh chat. Not a spec — see
 [README.md](README.md), [CHANGELOG.md](CHANGELOG.md), and
@@ -45,22 +45,41 @@ python3 app.py                                 # http://127.0.0.1:5000
 - **Parsers reconcile to the exact paisa** against printed statement totals.
   HDFC: Rupee glyph renders as `C`; credits flagged by lone `+`/`Cr`/keywords;
   jumbled summary box; EMI/Ref# wraps stitched. ICICI: date+serial concatenated
-  then split; `CR` suffix = credit; intl rows wrap across 2–3 lines. Axis (Neo /
-  MY Zone): **coordinate-based** — rows anchored on date+amount+Debit/Credit,
-  description = detail-column words vertically nearest the anchor (long merchant
-  names wrap above/below the row); totals from the payment-summary box; intl
-  inferred from foreign-city markers; needs the per-statement password.
+  then split; `CR` suffix = credit; intl rows wrap across 2–3 lines. **Axis has
+  two layouts** (`parse_axis` sniffs which): the full e-mailed statement
+  (`_parse_axis_full`, column split by x — date / details / **merchant-category**
+  / amount / Dr-Cr; real Statement Period + Generation Date drive the cycle; FX
+  amounts `( THB … )` captured; intl = FX present) and the cut-down Axis-app
+  export (`_parse_axis_app`, nearest-anchor by y for wrapped names). Needs the
+  per-statement password.
 - **Dedupe** on import is occurrence-aware on `(card, date, description, amount,
   direction)` — re-importing the same/overlapping statement is safe; genuinely
   repeated same-day charges are kept.
 
 ## Feature inventory
 Import portal (multi-PDF + password) · billing-cycle dashboard (bill breakdown
-KPIs, Net Amount Due by cycle stacked-by-card, category mix, category trend,
-spend-by-card, top merchants, domestic/intl) · ledger (search/filter/sort,
-inline + **bulk** re-tagging, **custom categories**, **two-level subcategory**,
-free-text **notes**) · clickable INTL/EMI pills · **chart→ledger drill-down** ·
-**Excel export** · reconciliation engine.
+KPIs, Net Amount Due by cycle stacked-by-card, category mix, **two-level
+Category→Subcategory donut**, category trend, spend-by-card, top merchants,
+domestic/intl; **multi-select cycle picker**; **horizontally scrollable** cycle
+bars) · ledger (**expandable search + single-row filters**, sort, inline +
+**bulk** re-tagging, **custom categories**, **DB-backed searchable subcategory
+combobox**, free-text **notes**) · clickable INTL/EMI pills ·
+**chart→ledger drill-down** · **Excel export** · reconciliation engine.
+
+## Frontend notes
+- `static/app.js` has a reusable `Dropdown` class (multi-select + searchable/
+  creatable combobox) powering the month pickers and the subcategory comboboxes.
+  Panels are `position:fixed` (positioned on open) so they escape the
+  overflow-scroll filter bar and ledger table; they close on outside-click/scroll.
+- Multi-month flows as a comma-separated `month=YYYY-MM,YYYY-MM` query; `db`
+  turns it into a `cycle_month IN (…)` clause (`_months_list`).
+- Subcategories live in a `subcategories` table (seeded from existing tags);
+  `GET/POST /api/subcategories`.
+
+## Testing / preview
+- `LUCENT_DB=/path python3 app.py` runs against a throwaway DB.
+- macOS TCC blocks the preview sandbox from `~/Downloads`; to drive a real
+  browser, copy the app to `/tmp` and launch from there (see this session).
 
 ## Open items / decisions for the next session
 1. **Net-vs-gross Travel (pending user decision).** User's 4 cancelled-Georgia

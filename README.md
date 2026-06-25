@@ -25,11 +25,15 @@ device.**
 - **Billing-cycle dashboard** — everything is organised by the statement it was
   billed on, not the calendar date. Headline **Net Amount Due by billing cycle**
   (total payable, stacked by card), cycle-aware KPIs with month-over-month
-  deltas, plus category mix, category trend, spend by card, top merchants, and
-  domestic-vs-international. Card and cycle filters scope every panel.
-- **Transaction ledger** — searchable, filterable (cycle / category / bank /
-  card / direction), and sortable grid with **inline category dropdowns**,
-  **bulk re-tagging** of an entire search result, **custom categories**, and
+  deltas, plus category mix, a **two-level Category → Subcategory donut**,
+  category trend, spend by card, top merchants, and domestic-vs-international.
+  Card filter and a **multi-select billing-cycle picker** scope every panel; the
+  cycle bar charts scroll horizontally as statements accumulate.
+- **Transaction ledger** — an expandable search and a single-row filter bar
+  (cycle multi-select / category / subcategory / bank / card / direction /
+  section / EMI), a sortable grid with **inline category dropdowns**, a
+  **searchable subcategory combobox** backed by a real catalogue, **bulk
+  re-tagging** of an entire search result, **custom categories**, and
   **free-text personal notes/tags**. INTL and EMI badges, foreign amounts.
 - **Excel export** — download the current ledger view as a styled `.xlsx`.
 - **Reconciliation engine** — for every imported statement, compares the parsed
@@ -75,12 +79,14 @@ list of transactions. Highlights of the bank-specific handling:
   credits carry a `CR` suffix. International rows that wrap across 2–3 visual
   lines (foreign amount / `THB` / INR) are re-joined using a column-aware
   completion test.
-- **Axis (Neo / MY Zone / other):** parsed from **word coordinates** rather than
-  the flat text stream, because long merchant names wrap to lines that straddle
-  the vertically-centred date/amount/direction row. Each row is anchored on its
-  date + amount + Debit/Credit token, and its description is the detail-column
-  text vertically nearest that anchor. Total/opening/min-due come from the
-  payment-summary box; international spend is inferred from foreign-city markers.
+- **Axis (Neo / MY Zone / other):** two layouts are handled. The full e-mailed
+  statement is parsed from word coordinates so the bank's *merchant-category*
+  column is split out cleanly from the description; it provides the real
+  statement period, generation date and per-transaction foreign-currency amounts
+  (e.g. `( THB 846.00 )`), and international spend is taken straight from those.
+  The cut-down Axis-app export (no statement date; long names wrap above/below
+  the centred row) is still supported as a fallback, anchored on its
+  date + amount + Debit/Credit token.
 
 ## Data & privacy
 
