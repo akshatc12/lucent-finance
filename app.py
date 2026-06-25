@@ -47,9 +47,19 @@ def api_import():
             res["card_label"] = parsed.get("card_label")
             results.append(res)
         except Exception as e:  # noqa: BLE001 — surface parse/decrypt errors to UI
-            msg = str(e)
-            if "password" in msg.lower() or "decrypt" in msg.lower():
-                msg = "Could not decrypt — check the statement password."
+            msg = str(e).strip()
+            ename = e.__class__.__name__
+            blob = f"{ename} {msg} {e!r}".lower()
+            # pdfplumber raises an empty-message PdfminerException when a
+            # password-protected PDF can't be decrypted — give a clear hint.
+            if (not msg and ename == "PdfminerException") or any(
+                    k in blob for k in ("password", "decrypt", "crypt")):
+                msg = ("Could not open this PDF — it looks encrypted. Enter the "
+                       "exact statement password. Tip: if you're importing "
+                       "statements from different cards, import them one at a "
+                       "time, since each can have its own password.")
+            elif not msg:
+                msg = ename
             results.append({"file": name, "ok": False, "error": msg,
                             "trace": traceback.format_exc().splitlines()[-1]})
     return jsonify({"results": results})
