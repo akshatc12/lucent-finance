@@ -1,7 +1,5 @@
 <div align="center">
-  <img src="static/favicon.svg" width="72" height="72" alt="Lucent" />
-  <h1>Lucent</h1>
-  <p><em>Finances, illuminated.</em></p>
+  <img src="assets/banner.svg" alt="Lucent — finances, illuminated." width="100%" />
   <p>
     <img alt="version" src="https://img.shields.io/badge/version-0.9.0-6d5cff" />
     <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e" />
