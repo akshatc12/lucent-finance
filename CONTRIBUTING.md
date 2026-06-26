@@ -35,8 +35,11 @@ git push --tags
 ## Local development
 ```bash
 python3 -m pip install -r requirements.txt
-python3 app.py            # http://127.0.0.1:5000  (or PORT=8753 python3 app.py)
+python3 app.py            # auto-picks a free port (skips AirPlay :5000) & prints the URL
 ```
+Double-clicking `run.command` (macOS) does the same and opens your browser.
+Pin a port with `PORT=9000 python3 app.py`. Use `LUCENT_DB=/tmp/x.db` to run
+against a throwaway database without touching your real ledger.
 
 ## Never commit
 Local financial data. `data/`, `*.db`, `*.pdf`, and `*.xlsx` are gitignored —

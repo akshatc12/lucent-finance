@@ -8,9 +8,26 @@ duplicates are only skipped when re-importing the same data or an overlapping
 statement period — handled by an occurrence-aware counter.
 """
 import os
+import re
 import sqlite3
 import hashlib
 import datetime as _dt
+
+# A transaction is dropped from the spend donuts/snapshot analytics when its
+# free-text note contains any of these whole words (case-insensitive). Typing
+# "Refund" on a wrongly-booked, since-refunded charge nets it out of the rings
+# without deleting it from the ledger or disturbing the statement's bill math.
+# Whole-word matching means prose like "non-refundable" never false-triggers.
+EXCLUDE_WORDS = {"refund", "refunds", "refunded", "reversal", "reversed",
+                 "exclude", "excluded", "ignore", "ignored"}
+_WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+def note_excludes(note):
+    """True when a note marks its transaction as excluded from spend analytics."""
+    if not note:
+        return False
+    return any(w in EXCLUDE_WORDS for w in _WORD_RE.findall(note.lower()))
 
 # DB location: defaults to ./data/ledger.db; override with LUCENT_DB (handy for
 # tests / previews so they never touch the real ledger).
@@ -82,6 +99,15 @@ def _migrate(c):
         c.execute("ALTER TABLE transactions ADD COLUMN note TEXT")
     if "subcategory" not in cols:
         c.execute("ALTER TABLE transactions ADD COLUMN subcategory TEXT")
+    if "excluded" not in cols:
+        # Derived flag kept in sync with the note (see note_excludes). Stored so
+        # the spend aggregations stay simple `excluded=0` filters; backfilled
+        # from any notes already typed on existing rows.
+        c.execute("ALTER TABLE transactions ADD COLUMN excluded INTEGER DEFAULT 0")
+        for r in c.execute("SELECT id, note FROM transactions "
+                           "WHERE note IS NOT NULL AND note<>''"):
+            if note_excludes(r["note"]):
+                c.execute("UPDATE transactions SET excluded=1 WHERE id=?", (r["id"],))
     # Backfill cycle_month from each transaction's statement date.
     c.execute("""
         UPDATE transactions SET cycle_month = (
@@ -332,8 +358,10 @@ def bulk_update(filters, category=None, subcategory=None):
 
 
 def update_note(txn_id, note):
+    note = note or None
     with _conn() as c:
-        c.execute("UPDATE transactions SET note=? WHERE id=?", (note or None, txn_id))
+        c.execute("UPDATE transactions SET note=?, excluded=? WHERE id=?",
+                  (note, 1 if note_excludes(note) else 0, txn_id))
         return c.total_changes
 
 
@@ -434,39 +462,45 @@ def stats_overview(card=None, month=None):
             FROM transactions{twc} GROUP BY month""", ([card] if card else []))}
 
         # ---- transaction snapshot (scoped to card + optional cycle) --------
-        def where(extra=""):
+        # `excl=True` drops note-excluded (refunded/reversed) rows so the spend
+        # donuts and snapshot panels show net spend. The time-series charts and
+        # statement-level KPIs deliberately do NOT pass it — they reflect actual
+        # cashflow / the printed bill, which must still reconcile to the paisa.
+        def where(extra="", excl=False):
             cl, a = ["1=1"], []
             if card:
                 cl.append("card_last4=?"); a.append(card)
             if months:
                 cl.append(f"cycle_month IN ({','.join('?' * len(months))})")
                 a += months
+            if excl:
+                cl.append("COALESCE(excluded,0)=0")
             if extra:
                 cl.append(extra)
             return " WHERE " + " AND ".join(cl), a
 
-        w, a = where("direction='debit'")
+        w, a = where("direction='debit'", excl=True)
         by_category = rows(f"""SELECT category, SUM(amount) total, COUNT(*) n
             FROM transactions{w} GROUP BY category ORDER BY total DESC""", a)
 
         # category -> subcategory breakdown for the two-level donut. Untagged
         # spend in a category is surfaced as its own slice so the rings reconcile.
-        w, a = where("direction='debit'")
+        w, a = where("direction='debit'", excl=True)
         by_cat_sub = rows(f"""SELECT category,
                    COALESCE(NULLIF(TRIM(subcategory),''),'(untagged)') subcategory,
                    SUM(amount) total, COUNT(*) n
             FROM transactions{w} GROUP BY category, subcategory
             ORDER BY category, total DESC""", a)
 
-        w, a = where("direction='debit' AND merchant IS NOT NULL")
+        w, a = where("direction='debit' AND merchant IS NOT NULL", excl=True)
         by_merchant = rows(f"""SELECT merchant, SUM(amount) total, COUNT(*) n
             FROM transactions{w} GROUP BY UPPER(merchant) ORDER BY total DESC LIMIT 15""", a)
 
-        w, a = where("direction='debit' AND section IS NOT NULL")
+        w, a = where("direction='debit' AND section IS NOT NULL", excl=True)
         dom_intl = rows(f"""SELECT section, SUM(amount) total, COUNT(*) n
             FROM transactions{w} GROUP BY section""", a)
 
-        w, a = where()
+        w, a = where(excl=True)
         by_card = rows(f"""SELECT bank, card_last4, card_label,
                    SUM(CASE WHEN direction='debit' THEN amount ELSE 0 END) spend,
                    COUNT(*) n
@@ -475,6 +509,12 @@ def stats_overview(card=None, month=None):
                    SUM(CASE WHEN direction='debit'  THEN amount ELSE 0 END) spend,
                    SUM(CASE WHEN direction='credit' THEN amount ELSE 0 END) credit
             FROM transactions{w}""", a).fetchone()
+
+        # how much debit spend the notes excluded from the snapshot above —
+        # surfaced under the donuts so the netting is transparent, never silent.
+        w, a = where("direction='debit' AND COALESCE(excluded,0)=1")
+        exc = c.execute(f"SELECT COALESCE(SUM(amount),0) amount, COUNT(*) n "
+                        f"FROM transactions{w}", a).fetchone()
 
         # category trend over the full timeline (card-scoped, never month-scoped)
         wt = " WHERE direction='debit' AND cycle_month IS NOT NULL"
@@ -494,6 +534,7 @@ def stats_overview(card=None, month=None):
             "selected_card": card,
             "totals": {"n": totals["n"] or 0, "spend": totals["spend"] or 0,
                        "credit": totals["credit"] or 0},
+            "excluded": {"amount": exc["amount"] or 0, "n": exc["n"] or 0},
         }
 
 

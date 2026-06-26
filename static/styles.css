@@ -208,6 +208,14 @@ table.ledger .num{text-align:right;font-variant-numeric:tabular-nums}
 .pill.emi{background:#4a3a1a;color:#f3c969}
 .clickpill{cursor:pointer;transition:filter .12s}
 .clickpill:hover{filter:brightness(1.35)}
+/* Refund/excluded rows: dimmed with a struck amount + a visible badge, so a
+   note like "Refund" netting it out of the donuts is never silent magic. */
+table.ledger tbody tr.excluded{opacity:.6}
+table.ledger tbody tr.excluded:hover{opacity:.9}
+table.ledger tbody tr.excluded .amt-debit{text-decoration:line-through;color:var(--muted)}
+.pill.excl{background:#15402c;color:#7ee2a8}
+.excl-hint{display:none;color:#5b8f6e;font-size:10.5px;margin-top:3px}
+table.ledger tbody tr.excluded .excl-hint{display:block}
 .clickpill::after{content:" ⌕";font-size:8px;opacity:.6}
 
 /* two-level category cell */
