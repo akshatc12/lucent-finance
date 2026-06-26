@@ -16,6 +16,13 @@ function toast(msg) {
   clearTimeout(t._t); t._t = setTimeout(() => t.classList.remove("show"), 2600);
 }
 
+// A note with any of these whole words drops the transaction from the spend
+// donuts/snapshot (mirrors db.EXCLUDE_WORDS) — type "Refund" to net it out.
+const EXCLUDE_WORDS = ["refund", "refunds", "refunded", "reversal", "reversed",
+  "exclude", "excluded", "ignore", "ignored"];
+const noteExcludes = s =>
+  (String(s || "").toLowerCase().match(/[a-z0-9]+/g) || []).some(w => EXCLUDE_WORDS.includes(w));
+
 const PALETTE = ["#5b8cff", "#22c55e", "#f59e0b", "#ef4444", "#a855f7", "#06b6d4",
   "#ec4899", "#84cc16", "#fb923c", "#14b8a6", "#f43f5e", "#8b5cf6", "#eab308", "#64748b"];
 Chart.defaults.color = "#8b97a7";
@@ -358,9 +365,12 @@ async function loadDashboard() {
   const scopeLbl = selMonths.length
     ? (selMonths.length === 1 ? monLabel(selMonths[0]) : `${selMonths.length} cycles`)
     : "All cycles";
+  // spend netted out of the donuts by "refund"-tagged notes (transparency)
+  const excl = stats.excluded || { amount: 0, n: 0 };
+  const exclLbl = excl.amount > 0 ? ` · −${inr(excl.amount)} refunded (${excl.n})` : "";
   const cat = stats.by_category.filter(c => c.total > 0);
   const catTotal = cat.reduce((s, c) => s + c.total, 0);
-  $("#catScope").textContent = `${scopeLbl} · ${inr(catTotal)} total`;
+  $("#catScope").textContent = `${scopeLbl} · ${inr(catTotal)} total${exclLbl}`;
   draw("chCategory", {
     type: "doughnut",
     data: {
@@ -376,7 +386,7 @@ async function loadDashboard() {
   });
 
   // Two-level Category → Subcategory donut
-  $("#catSubScope").textContent = `${scopeLbl} · ${inr(catTotal)} total`;
+  $("#catSubScope").textContent = `${scopeLbl} · ${inr(catTotal)} total${exclLbl}`;
   drawCatSub(stats.by_cat_sub || []);
 
   // Category trend stacked
@@ -581,7 +591,8 @@ async function loadLedger() {
     const fx = t.foreign_amount ? `${t.foreign_currency} ${Number(t.foreign_amount).toLocaleString("en-IN")}` : "—";
     const amtCls = t.direction === "credit" ? "amt-credit" : "amt-debit";
     const sign = t.direction === "credit" ? "− " : "";
-    return `<tr>
+    const exHint = `<span class="excl-hint">↩ excluded from spend charts</span>`;
+    return `<tr class="${t.excluded ? "excluded" : ""}" data-row="${t.id}">
       <td>${t.txn_date}<div class="desc-sub">${t.cycle_month ? monLabel(t.cycle_month) + " bill" : ""}${t.txn_time && t.txn_time !== "00:00" ? " · " + t.txn_time : ""}</div></td>
       <td class="desc-cell"><div class="desc-main">${esc(t.merchant || t.description)}${pills}</div>
         <div class="desc-sub">${esc(t.city ? t.city + " · " : "")}${esc(t.cardholder || "")}${t.ref_no ? " · ref " + esc(String(t.ref_no).slice(0, 14)) : ""}</div></td>
@@ -590,7 +601,7 @@ async function loadLedger() {
         <div class="dd dd-inline dd-single sub-dd" data-id="${t.id}"
              data-sub="${esc(t.subcategory || "")}"></div></div></td>
       <td><input class="note-input" data-id="${t.id}" value="${esc(t.note || "")}"
-            placeholder="add note / tag…" /></td>
+            placeholder='note / tag — type "refund" to exclude' />${exHint}</td>
       <td class="num">${fx}</td>
       <td class="num ${amtCls}">${sign}${inr2(t.amount)}</td>
     </tr>`;
@@ -609,7 +620,10 @@ async function loadLedger() {
         { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ note: e.target.value }) });
       e.target.dataset.saved = e.target.value;
-      toast("Note saved");
+      // reflect exclusion immediately; the donuts refresh on the Dashboard view
+      const ex = noteExcludes(e.target.value), tr = e.target.closest("tr");
+      tr.classList.toggle("excluded", ex);   // CSS shows/hides the hint by class
+      toast(ex ? "Saved — excluded from spend charts" : "Note saved");
       if (e.type === "keydown") e.target.blur();
     };
     inp.dataset.saved = inp.value;

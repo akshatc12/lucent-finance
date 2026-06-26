@@ -3,7 +3,7 @@
   <h1>Lucent</h1>
   <p><em>Finances, illuminated.</em></p>
   <p>
-    <img alt="version" src="https://img.shields.io/badge/version-0.6.0-6d5cff" />
+    <img alt="version" src="https://img.shields.io/badge/version-0.9.0-6d5cff" />
     <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e" />
     <img alt="python" src="https://img.shields.io/badge/python-3.9%2B-blue" />
     <img alt="private" src="https://img.shields.io/badge/%F0%9F%94%92-Private%20Terminal-1d2430" />
@@ -34,7 +34,9 @@ device.**
   section / EMI), a sortable grid with **inline category dropdowns**, a
   **searchable subcategory combobox** backed by a real catalogue, **bulk
   re-tagging** of an entire search result, **custom categories**, and
-  **free-text personal notes/tags**. INTL and EMI badges, foreign amounts.
+  **free-text personal notes/tags** — type _“refund”_ (or _reversed_ / _ignore_)
+  on a since-refunded charge to **net it out of the spend donuts** (the row stays
+  in the ledger, dimmed and badged). INTL and EMI badges, foreign amounts.
 - **Excel export** — download the current ledger view as a styled `.xlsx`.
 - **Reconciliation engine** — for every imported statement, compares the parsed
   transaction sums against the printed statement totals (purchases, payments,
@@ -50,18 +52,24 @@ device.**
 
 ## Setup & run
 
+**Easiest (macOS):** double-click **`run.command`** in Finder (drag it to your
+Dock to keep it handy). It finds a free port, starts the server, and opens your
+browser automatically — nothing to remember.
+
+From a terminal:
+
 ```bash
 git clone https://github.com/akshatc12/lucent-finance.git
 cd lucent-finance
 python3 -m pip install -r requirements.txt      # Flask + pdfplumber + openpyxl
-python3 app.py                                  # serves http://127.0.0.1:5000
+python3 app.py                                  # auto-picks a free port, prints the URL
 ```
 
-Then open <http://127.0.0.1:5000> and go to the **Import** tab.
-
-Set a different port with `PORT=8753 python3 app.py` (macOS uses 5000 for
-AirPlay Receiver, which can be disabled in System Settings → General → AirDrop
-& Handoff).
+`app.py` defaults to port **8753** and automatically hops to the next free port
+if it's busy, **always skipping macOS AirPlay's :5000 / :7000** — so launching
+never clashes with AirPlay or a stale instance. Pin a port with
+`PORT=9000 python3 app.py`. (AirPlay Receiver can also be turned off in System
+Settings → General → AirDrop & Handoff.)
 
 ## Parsing engines
 
@@ -98,7 +106,8 @@ anywhere.
 ## Project layout
 
 ```
-app.py            Flask app: REST API + static serving + Excel export
+run.command       double-click launcher (macOS): free port + opens browser
+app.py            Flask app: REST API + static serving + Excel export + launcher
 parsers.py        HDFC, ICICI & Axis parsing engines
 db.py             SQLite schema, import/dedupe, queries, reconciliation
 categorize.py     keyword-based auto-categorisation

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-06-26
+### Added
+- **Refund-aware donuts** — type a word like **"Refund"** (also _refunded /
+  reversed / reversal / exclude / ignore_) in a transaction's note and it drops
+  out of the spend donuts and snapshot panels, so a wrongly-booked-then-refunded
+  charge no longer inflates its category (e.g. Travel → Hotel showing 3 hotels
+  when one was cancelled). The row stays in the ledger — dimmed, with an
+  "excluded from spend charts" badge — and the netted amount is shown under the
+  donuts (“−₹56,977 refunded”). Matching is **whole-word**, so prose like
+  "non-refundable" never triggers it. Backfilled from notes you'd already typed.
+- **Double-click launcher** — `run.command` launches Lucent straight from Finder
+  (or the Dock): no `cd`, no command to remember. It opens your browser
+  automatically once the server is up.
+### Changed
+- **Spend donuts now show _net_ spend**; the statement-level KPIs, the
+  reconciliation strip and the cashflow bars (“New Spend vs Credits”, category
+  trend) deliberately stay **gross**, so the printed bill still reconciles to the
+  paisa while the category mix reflects what you actually kept.
+- **Auto free-port** — `app.py` defaults to **:8753** and hops to the next free
+  port when it's busy, always skipping macOS AirPlay's **:5000 / :7000**, then
+  prints the chosen URL. No more port clashes with a stale instance or AirPlay.
+
 ## [0.8.0] — 2026-06-26
 ### Added
 - **Multi-select billing cycles** — the dashboard and ledger month pickers are
@@ -132,7 +154,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ledger with inline re-tagging, and a reconciliation engine.
 - Import portal with statement-password support; all processing stays local.
 
-[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/akshatc12/lucent-finance/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.9.0
 [0.8.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.8.0
 [0.7.1]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.1
 [0.7.0]: https://github.com/akshatc12/lucent-finance/releases/tag/v0.7.0

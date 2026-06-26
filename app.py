@@ -216,8 +216,31 @@ def api_reconciliation():
     return jsonify({"reconciliation": db.reconciliation()})
 
 
+def _free_port(start, tries=60):
+    """First open port at/after `start` — so launching never clashes with a
+    stale instance (or macOS AirPlay, which squats :5000). Skips :7000 too."""
+    import socket
+    for p in range(start, start + tries):
+        if p in (5000, 7000):  # macOS Control Center / AirPlay Receiver
+            continue
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(("127.0.0.1", p)) != 0:  # nothing listening here
+                return p
+    return start
+
+
 if __name__ == "__main__":
     import os
-    port = int(os.environ.get("PORT", "5000"))
-    print(f"\n  Credit Card Dashboard running at  http://127.0.0.1:{port}\n")
+    base = int(os.environ.get("PORT") or 8753)  # 8753 default — never 5000 (AirPlay)
+    port = _free_port(base)
+    url = f"http://127.0.0.1:{port}"
+    print(f"\n  Lucent — Finances, illuminated.\n  ▶  Open  {url}")
+    if port != base:
+        print(f"     (port {base} was busy — using {port})")
+    print("     Press CTRL+C to quit.\n")
+    # The double-click launcher (run.command) sets LUCENT_OPEN so the browser
+    # pops automatically; plain `python3 app.py` stays quiet for tests/previews.
+    if os.environ.get("LUCENT_OPEN"):
+        import threading, webbrowser
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
     app.run(host="127.0.0.1", port=port, debug=False)
